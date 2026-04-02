@@ -5,7 +5,7 @@ import { FilterKind, Filters, OperatorKind } from '../types';
 import { buildIsEmptyFilter } from './buildIsEmptyFilter';
 
 export const parseRawFilters = (rawFilters: string): string[][] => {
-  const matches = rawFilters.matchAll(/(\w+|"[^"]+")(=|!=|=~|!~)"([^"]*)"/g);
+  const matches = rawFilters.matchAll(/([a-zA-Z_][a-zA-Z0-9_]*|"[^"]+")(=|!=|=~|!~)"([^"]*)"/g);
   return Array.from(matches).map(([, attribute, operator, value]) => [
     attribute.startsWith('"') ? attribute.slice(1, -1) : attribute,
     operator,

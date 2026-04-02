@@ -18,7 +18,7 @@ type URLParamsBuilderProps = {
 function extractAdditionalLabels(labelSelector: string): string[] {
   const labels: string[] = [];
   // Match: label_name + operator + quoted_value
-  const labelRegex = /(\w+|"[^"]+")(=|!=|=~|!~)"([^"]+)"/g;
+  const labelRegex = /([a-zA-Z_][a-zA-Z0-9_]*|"[^"]+")(=|!=|=~|!~)"([^"]+)"/g;
   let match;
   while ((match = labelRegex.exec(labelSelector)) !== null) {
     const rawName = match[1].startsWith('"') ? match[1].slice(1, -1) : match[1];
