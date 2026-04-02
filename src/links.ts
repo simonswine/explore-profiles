@@ -18,14 +18,15 @@ type URLParamsBuilderProps = {
 function extractAdditionalLabels(labelSelector: string): string[] {
   const labels: string[] = [];
   // Match: label_name + operator + quoted_value
-  const labelRegex = /(\w+)(=|!=|=~|!~)"([^"]+)"/g;
+  const labelRegex = /(\w+|"[^"]+")(=|!=|=~|!~)"([^"]+)"/g;
   let match;
   while ((match = labelRegex.exec(labelSelector)) !== null) {
-    if (match[1] !== 'service_name') {
+    const rawName = match[1].startsWith('"') ? match[1].slice(1, -1) : match[1];
+    if (rawName !== 'service_name') {
       // Skip service_name, handled separately
       // must have | delimiter for Scenes variables
       const scenesDelimiter = '|';
-      labels.push(`${match[1]}${scenesDelimiter}${match[2]}${scenesDelimiter}${match[3]}`); // Remove quotes, they'll be added by URLSearchParams
+      labels.push(`${rawName}${scenesDelimiter}${match[2]}${scenesDelimiter}${match[3]}`); // Remove quotes, they'll be added by URLSearchParams
     }
   }
   return labels;

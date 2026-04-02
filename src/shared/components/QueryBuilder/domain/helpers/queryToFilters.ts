@@ -5,8 +5,12 @@ import { FilterKind, Filters, OperatorKind } from '../types';
 import { buildIsEmptyFilter } from './buildIsEmptyFilter';
 
 export const parseRawFilters = (rawFilters: string): string[][] => {
-  const matches = rawFilters.matchAll(/(\w+)(=|!=|=~|!~)"([^"]*)"/g);
-  return Array.from(matches).map(([, attribute, operator, value]) => [attribute, operator, value]);
+  const matches = rawFilters.matchAll(/(\w+|"[^"]+")(=|!=|=~|!~)"([^"]*)"/g);
+  return Array.from(matches).map(([, attribute, operator, value]) => [
+    attribute.startsWith('"') ? attribute.slice(1, -1) : attribute,
+    operator,
+    value,
+  ]);
 };
 
 const LABELS_REGEX = /.+:[^{]+\{(.+)\}$/;

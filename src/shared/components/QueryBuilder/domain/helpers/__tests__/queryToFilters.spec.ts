@@ -214,6 +214,33 @@ const cases: TestCase[] = [
       },
     ],
   ],
+  // UTF-8 / quoted label names
+  [
+    'process_cpu:cpu:nanoseconds:cpu:nanoseconds{service_name="svc","http.method"="GET"}',
+    [
+      {
+        id: expect.any(String),
+        type: FilterKind['attribute-operator-value'],
+        active: true,
+        attribute: { label: 'http.method', value: 'http.method' },
+        operator: { label: '=', value: '=' },
+        value: { label: 'GET', value: 'GET' },
+      },
+    ],
+  ],
+  [
+    'process_cpu:cpu:nanoseconds:cpu:nanoseconds{service_name="svc","k8s.node.name"!="node-1"}',
+    [
+      {
+        id: expect.any(String),
+        type: FilterKind['attribute-operator-value'],
+        active: true,
+        attribute: { label: 'k8s.node.name', value: 'k8s.node.name' },
+        operator: { label: '!=', value: '!=' },
+        value: { label: 'node-1', value: 'node-1' },
+      },
+    ],
+  ],
   [
     'query process_cpu:cpu:nanoseconds:cpu:nanoseconds{service_name="pyroscope-rideshare-go",hostname=~"r{1}"}',
     [
