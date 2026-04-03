@@ -1,7 +1,8 @@
 ARG grafana_version=latest@sha256:8b6530902b3609dac9f82cabbe5a9778e2ca6eda817c4572d5d5c202102fe76d
 ARG grafana_image=grafana-enterprise
+ARG grafana_base_image=simonswine/grafana:pyroscope-utf8-label-names
 
-FROM grafana/${grafana_image}:${grafana_version}
+FROM ${grafana_base_image}
 
 ARG anonymous_auth_enabled=true
 ARG development=false
