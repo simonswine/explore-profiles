@@ -13,12 +13,12 @@ services:
       - 3000:3000/tcp
     volumes:
       - ./dist:/var/lib/grafana/plugins/grafana-pyroscope-app
+      - ./samples/provisioning-remote/grafana.ini:/etc/grafana/grafana.ini
     environment:
       GF_INSTALL_PLUGINS: grafana-llm-app
       OPENAI_API_KEY: $OPENAI_API_KEY
       OPENAI_ORGANIZATION_ID: $OPENAI_ORGANIZATION_ID
       GF_FEATURE_TOGGLES_ENABLE: localizationForPlugins
-      GF_FEATURE_TOGGLES_DISABLE: pyroscopeUTF8LabelNames
 
   qdrant:
     image: qdrant/qdrant@sha256:94728574965d17c6485dd361aa3c0818b325b9016dac5ea6afec7b4b2700865f
