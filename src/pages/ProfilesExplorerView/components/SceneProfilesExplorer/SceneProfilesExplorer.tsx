@@ -32,6 +32,7 @@ import { SceneExploreServiceProfileTypes } from '../../components/SceneExploreSe
 import { getDefaultTimeRange } from '../../domain/buildTimeRange';
 import { EventViewDiffFlameGraph } from '../../domain/events/EventViewDiffFlameGraph';
 import { EventViewServiceFlameGraph } from '../../domain/events/EventViewServiceFlameGraph';
+import { EventViewServiceHeatmap } from '../../domain/events/EventViewServiceHeatmap';
 import { EventViewServiceLabels } from '../../domain/events/EventViewServiceLabels';
 import { EventViewServiceProfiles } from '../../domain/events/EventViewServiceProfiles';
 import { FiltersVariable } from '../../domain/variables/FiltersVariable/FiltersVariable';
@@ -56,6 +57,7 @@ import { FunctionVersionProvider } from '../SceneExploreServiceFlameGraph/compon
 import { RemoveProfileIdSelector } from '../SceneExploreServiceFlameGraph/domain/events/RemoveProfileIdSelector';
 import { RemoveSpanSelector } from '../SceneExploreServiceFlameGraph/domain/events/RemoveSpanSelector';
 import { SceneExploreServiceFlameGraph } from '../SceneExploreServiceFlameGraph/SceneExploreServiceFlameGraph';
+import { SceneExploreServiceHeatmap } from '../SceneExploreServiceHeatmap/SceneExploreServiceHeatmap';
 import { Header } from './components/Header';
 
 export interface SceneProfilesExplorerState extends Partial<EmbeddedSceneState> {
@@ -78,6 +80,7 @@ export enum ExplorationType {
   FLAME_GRAPH = 'flame-graph',
   DIFF_FLAME_GRAPH = 'diff-flame-graph',
   FAVORITES = 'favorites',
+  HEATMAP = 'heatmap',
 }
 
 export class SceneProfilesExplorer extends SceneObjectBase<SceneProfilesExplorerState> {
@@ -125,6 +128,14 @@ export class SceneProfilesExplorer extends SceneObjectBase<SceneProfilesExplorer
         label: t('explorer.exploration-type.favorites', 'Favorites'),
         description: t('explorer.exploration-type.favorites-description', 'Overview of favorited visualizations'),
         icon: 'favorite',
+      },
+      {
+        value: ExplorationType.HEATMAP,
+        label: t('explorer.exploration-type.heatmap', 'Heatmap'),
+        description: t(
+          'explorer.exploration-type.heatmap-description',
+          'Profile heatmap with trace-linked exemplars'
+        ),
       },
     ];
   }
@@ -337,6 +348,14 @@ export class SceneProfilesExplorer extends SceneObjectBase<SceneProfilesExplorer
       });
     });
 
+    const heatmapSub = this.subscribeToEvent(EventViewServiceHeatmap, (event) => {
+      this.setExplorationType({
+        type: ExplorationType.HEATMAP,
+        comesFromUserAction: true,
+        item: event.payload.item,
+      });
+    });
+
     const removeSpanSelectorSub = this.subscribeToEvent(RemoveSpanSelector, () => {
       this.resetSpanSelector();
     });
@@ -349,6 +368,7 @@ export class SceneProfilesExplorer extends SceneObjectBase<SceneProfilesExplorer
       unsubscribe() {
         diffFlameGraphSub.unsubscribe();
         flameGraphSub.unsubscribe();
+        heatmapSub.unsubscribe();
         labelsSub.unsubscribe();
         profilesSub.unsubscribe();
         removeSpanSelectorSub.unsubscribe();
@@ -417,7 +437,7 @@ export class SceneProfilesExplorer extends SceneObjectBase<SceneProfilesExplorer
     // preserve existing filters only when switching to "Labels", "Flame graph" or "Diff flame graph"
     // if not, they will be added to the queries without any notice on the UI
     if (
-      ![ExplorationType.LABELS, ExplorationType.FLAME_GRAPH, ExplorationType.DIFF_FLAME_GRAPH].includes(
+      ![ExplorationType.LABELS, ExplorationType.FLAME_GRAPH, ExplorationType.DIFF_FLAME_GRAPH, ExplorationType.HEATMAP].includes(
         nextExplorationType as ExplorationType
       )
     ) {
@@ -447,6 +467,10 @@ export class SceneProfilesExplorer extends SceneObjectBase<SceneProfilesExplorer
 
       case ExplorationType.FAVORITES:
         primary = new SceneExploreFavorites();
+        break;
+
+      case ExplorationType.HEATMAP:
+        primary = new SceneExploreServiceHeatmap({ item });
         break;
 
       case ExplorationType.ALL_SERVICES:
