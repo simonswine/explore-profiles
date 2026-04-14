@@ -1,16 +1,24 @@
 import { css } from '@emotion/css';
-import { DataQueryRequest, DataQueryResponse, DataSourceApi, Field, getValueFormat, GrafanaTheme2 } from '@grafana/data';
+import {
+  DataQueryRequest,
+  DataQueryResponse,
+  DataSourceApi,
+  Field,
+  getValueFormat,
+  GrafanaTheme2,
+} from '@grafana/data';
 import { getDataSourceSrv } from '@grafana/runtime';
 import { SceneComponentProps, sceneGraph, SceneObjectBase, SceneObjectState } from '@grafana/scenes';
-import { getProfileMetric } from '@shared/infrastructure/profile-metrics/getProfileMetric';
 import { IconButton, Select, Spinner, useStyles2 } from '@grafana/ui';
-import React from 'react';
+import { getProfileMetric } from '@shared/infrastructure/profile-metrics/getProfileMetric';
+import { t } from '@grafana/i18n';
+import React, { useCallback, useState } from 'react';
 import { lastValueFrom, Observable } from 'rxjs';
 
+import { EventViewServiceFlameGraph } from '../../domain/events/EventViewServiceFlameGraph';
+import { FiltersVariable } from '../../domain/variables/FiltersVariable/FiltersVariable';
 import { PanelType } from '../SceneByVariableRepeaterGrid/components/ScenePanelTypeSwitcher';
 import { buildUnitFormatter } from '../SceneExploreServiceFlameGraph/components/SceneFunctionDetailsPanel/domain/buildUnitFormatter';
-import { FiltersVariable } from '../../domain/variables/FiltersVariable/FiltersVariable';
-import { EventViewServiceFlameGraph } from '../../domain/events/EventViewServiceFlameGraph';
 import { ExemplarRow } from './infrastructure/buildHeatmapDataFrames';
 import { SceneExploreServiceHeatmap } from './SceneExploreServiceHeatmap';
 
@@ -36,6 +44,63 @@ interface SceneExemplarTableState extends SceneObjectState {
 function formatTimestamp(ms: number): string {
   return new Date(ms).toLocaleTimeString();
 }
+
+function CopyableId({ value, display }: { value: string; display: string }) {
+  const [copied, setCopied] = useState(false);
+  const styles = useStyles2(getCopyableStyles);
+
+  const handleCopy = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      navigator.clipboard.writeText(value).then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1500);
+      });
+    },
+    [value]
+  );
+
+  return (
+    <span className={styles.wrapper} title={value} onClick={handleCopy}>
+      <span className={styles.text}>{display}</span>
+      <IconButton
+        name={copied ? 'check' : 'clipboard-alt'}
+        tooltip={copied ? t('heatmap.exemplar-table.copied', 'Copied!') : t('heatmap.exemplar-table.copy-to-clipboard', 'Copy to clipboard')}
+        size="xs"
+        className={copied ? styles.iconCopied : styles.icon}
+        onClick={handleCopy}
+      />
+    </span>
+  );
+}
+
+const getCopyableStyles = (theme: GrafanaTheme2) => ({
+  wrapper: css`
+    display: inline-flex;
+    align-items: center;
+    gap: ${theme.spacing(0.5)};
+    cursor: pointer;
+    border-radius: ${theme.shape.radius.default};
+    padding: ${theme.spacing(0, 0.25)};
+    &:hover {
+      background: ${theme.colors.action.hover};
+    }
+  `,
+  text: css`
+    font-family: ${theme.typography.fontFamilyMonospace};
+    font-size: ${theme.typography.bodySmall.fontSize};
+  `,
+  icon: css`
+    color: ${theme.colors.text.secondary};
+    opacity: 0;
+    .wrapper:hover & {
+      opacity: 1;
+    }
+  `,
+  iconCopied: css`
+    color: ${theme.colors.success.text};
+  `,
+});
 
 export class SceneExemplarTable extends SceneObjectBase<SceneExemplarTableState> {
   constructor() {
@@ -154,7 +219,11 @@ export class SceneExemplarTable extends SceneObjectBase<SceneExemplarTableState>
               const spanId = spanIdField.values[i];
               const traceId = traceIdField.values[i];
               if (spanId && traceId) {
-                traceInfoBySpanId[spanId] = { traceId, spanName: spanNameField?.values[i], duration: durationField?.values[i] };
+                traceInfoBySpanId[spanId] = {
+                  traceId,
+                  spanName: spanNameField?.values[i],
+                  duration: durationField?.values[i],
+                };
               }
             }
           }
@@ -192,7 +261,13 @@ export class SceneExemplarTable extends SceneObjectBase<SceneExemplarTableState>
           value: serviceName,
           label: serviceName,
           panelType: PanelType.TIMESERIES,
-          queryRunnerParams: { serviceName, profileMetricId, filters, profileIdSelector: profileId, spanSelector: spanId },
+          queryRunnerParams: {
+            serviceName,
+            profileMetricId,
+            filters,
+            profileIdSelector: profileId,
+            spanSelector: spanId,
+          },
         },
       }),
       true
@@ -224,7 +299,7 @@ export class SceneExemplarTable extends SceneObjectBase<SceneExemplarTableState>
       });
     };
 
-    const dsOptions = tempoDatasources.map((ds) => ({ label: ds.name, value: ds.uid }));
+    const dsOptions = tempoDatasources.map((ds: TempoDatasource) => ({ label: ds.name, value: ds.uid }));
 
     const profileMetricId = sceneGraph.interpolate(model, '$profileMetricId');
     const { unit, description } = getProfileMetric(profileMetricId as any);
@@ -270,7 +345,7 @@ export class SceneExemplarTable extends SceneObjectBase<SceneExemplarTableState>
                 </tr>
               </thead>
               <tbody>
-                {rows.map((row, i) => {
+                {rows.map((row: ExemplarRow, i: number) => {
                   const traceInfo = row.spanId ? traceInfoBySpanId[row.spanId] : undefined;
                   const isLoading = row.spanId ? loadingSpanIds.includes(row.spanId) : false;
                   const isSelected = !!row.spanId && row.spanId === selectedSpanId;
@@ -281,17 +356,29 @@ export class SceneExemplarTable extends SceneObjectBase<SceneExemplarTableState>
                       className={isSelected ? styles.selectedRow : undefined}
                     >
                       <td>{formatTimestamp(row.timestamp)}</td>
-                      <td className={styles.mono} title={row.spanId}>
-                        {row.spanId
-                          ? row.spanId.slice(0, 16) + (row.spanId.length > 16 ? '…' : '')
-                          : '–'}
+                      <td className={styles.mono}>
+                        {row.spanId ? (
+                          <CopyableId
+                            value={row.spanId}
+                            display={row.spanId.slice(0, 16) + (row.spanId.length > 16 ? '…' : '')}
+                          />
+                        ) : (
+                          '–'
+                        )}
                       </td>
                       <td>{row.spanName ?? traceInfo?.spanName ?? (isLoading ? <Spinner size="sm" /> : '–')}</td>
                       <td>{formatValue(row.value)}</td>
                       <td>
-                        {traceInfo?.duration !== undefined
-                          ? (() => { const f = getValueFormat('ns')(traceInfo.duration, 2); return `${f.text}${f.suffix ?? ''}`; })()
-                          : isLoading ? <Spinner size="sm" /> : '–'}
+                        {traceInfo?.duration !== undefined ? (
+                          (() => {
+                            const f = getValueFormat('ns')(traceInfo.duration, 2);
+                            return `${f.text}${f.suffix ?? ''}`;
+                          })()
+                        ) : isLoading ? (
+                          <Spinner size="sm" />
+                        ) : (
+                          '–'
+                        )}
                       </td>
                       <td className={styles.mono}>
                         {!row.spanId ? (
@@ -299,7 +386,7 @@ export class SceneExemplarTable extends SceneObjectBase<SceneExemplarTableState>
                         ) : isLoading ? (
                           <Spinner size="sm" />
                         ) : traceInfo ? (
-                          traceInfo.traceId.slice(0, 7) + '…'
+                          <CopyableId value={traceInfo.traceId} display={traceInfo.traceId.slice(0, 7) + '…'} />
                         ) : tempoDataSourceUid ? (
                           '–'
                         ) : (
