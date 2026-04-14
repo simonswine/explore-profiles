@@ -8,7 +8,7 @@ import {
   SceneObjectState,
   VizPanel,
 } from '@grafana/scenes';
-import { ScaleDistribution, TooltipDisplayMode } from '@grafana/schema';
+import { TooltipDisplayMode } from '@grafana/schema';
 import React from 'react';
 
 import { SceneExploreServiceHeatmap } from './SceneExploreServiceHeatmap';
@@ -36,10 +36,6 @@ export class SceneHeatmap extends SceneObjectBase<SceneHeatmapState> {
         scheme: 'Spectral',
         steps: 64,
       })
-      .setOption('rowsFrame', {
-        // Pyroscope uses linear bucket boundaries — override the sparse heatmap default of Log.
-        yBucketScale: { type: ScaleDistribution.Linear },
-      })
       .setOption('tooltip', {
         mode: TooltipDisplayMode.Single,
         yHistogram: true,
@@ -65,7 +61,13 @@ export class SceneHeatmap extends SceneObjectBase<SceneHeatmapState> {
         newState.isLoading !== prevState.isLoading ||
         newState.selectedSpanId !== prevState.selectedSpanId
       ) {
-        this.updateData(newState.heatmapFrame, newState.exemplarFrame, newState.isLoading, newState.selectedSpanId, parent!);
+        this.updateData(
+          newState.heatmapFrame,
+          newState.exemplarFrame,
+          newState.isLoading,
+          newState.selectedSpanId,
+          parent!
+        );
       }
     });
 

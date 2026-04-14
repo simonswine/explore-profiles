@@ -1,4 +1,5 @@
 import { DataFrameType, DataTopic, FieldType, MutableDataFrame } from '@grafana/data';
+import { ScaleDistribution, ScaleDistributionConfig } from '@grafana/schema';
 import { SelectHeatmapResponse } from '@shared/pyroscope-api/querier/v1/querier_pb';
 import { HeatmapSeries } from '@shared/pyroscope-api/types/v1/types_pb';
 
@@ -21,7 +22,11 @@ export interface ExemplarRow {
  * Fields: xMax (Time), yMin (Number, unit), yMax (Number, unit), count (Number).
  * frame.meta.type = DataFrameType.HeatmapCells
  */
-export function buildHeatmapDataFrame(series: HeatmapSeries, unit: string, stepMs: number): MutableDataFrame | null {
+export function buildHeatmapDataFrame(
+  series: HeatmapSeries,
+  unit: string,
+  scaleDistribution: ScaleDistributionConfig = { type: ScaleDistribution.Linear }
+): MutableDataFrame | null {
   const slots = series?.slots;
   if (!slots?.length) {
     return null;
@@ -31,43 +36,17 @@ export function buildHeatmapDataFrame(series: HeatmapSeries, unit: string, stepM
 
   const xMaxValues: number[] = [];
   const yMinValues: number[] = [];
-  const yMaxValues: number[] = [];
   const countValues: number[] = [];
 
-  for (let i = 0; i < sortedSlots.length; i++) {
-    const slot = sortedSlots[i];
+  for (const slot of sortedSlots) {
     const xMax = Number(slot.timestamp);
     const { yMin, counts } = slot;
 
+    // Emit all buckets including zeros so the panel knows the full y extent.
     for (let j = 0; j < counts.length; j++) {
-      if (counts[j] === 0) {
-        continue;
-      }
-
-      let yMax: number;
-      if (j < yMin.length - 1) {
-        yMax = yMin[j + 1];
-      } else if (j > 0) {
-        yMax = yMin[j] + (yMin[j] - yMin[j - 1]);
-      } else {
-        yMax = yMin[j] * 2;
-      }
-
       xMaxValues.push(xMax);
       yMinValues.push(yMin[j]);
-      yMaxValues.push(yMax);
       countValues.push(counts[j]);
-    }
-
-    // Gap-filling calibration: if the gap to the next slot is > stepMs, insert a
-    // zero-count row at timestamp+stepMs so the panel infers the correct bucket width.
-    if (i === 0 && sortedSlots.length > 1 && Number(sortedSlots[1].timestamp) !== xMax + stepMs) {
-      const calYMin = yMin.length > 0 ? yMin[0] : 0;
-      const calYMax = yMin.length > 1 ? yMin[1] : calYMin * 2;
-      xMaxValues.push(xMax + stepMs);
-      yMinValues.push(calYMin);
-      yMaxValues.push(calYMax);
-      countValues.push(0);
     }
   }
 
@@ -75,13 +54,23 @@ export function buildHeatmapDataFrame(series: HeatmapSeries, unit: string, stepM
     return null;
   }
 
+  // Compute yBucketSize from the first slot's constant linear delta.
+  // The panel reads meta.custom.yBucketSize for cell sizing in the dense/linear path.
+  const firstSlot = sortedSlots[0];
+  const yBucketSize = firstSlot.yMin.length > 1 ? firstSlot.yMin[1] - firstSlot.yMin[0] : firstSlot.yMin[0];
+
+  // isHeatmapCellsDense returns true iff the frame has exactly one field named 'y', 'yMin',
+  // or 'yMax'. With only yMin present it returns true → the panel respects
+  // fields[1].config.custom.scaleDistribution and uses the linear scale.
   const frame = new MutableDataFrame({
     name: 'heatmap',
-    meta: { type: DataFrameType.HeatmapCells },
+    meta: {
+      type: DataFrameType.HeatmapCells,
+      custom: { yBucketSize },
+    },
     fields: [
       { name: 'xMax', type: FieldType.time, values: xMaxValues, config: {} },
-      { name: 'yMin', type: FieldType.number, values: yMinValues, config: { unit } },
-      { name: 'yMax', type: FieldType.number, values: yMaxValues, config: { unit } },
+      { name: 'yMin', type: FieldType.number, values: yMinValues, config: { unit, custom: { scaleDistribution } } },
       { name: 'count', type: FieldType.number, values: countValues, config: {} },
     ],
   });
@@ -106,10 +95,7 @@ interface CollectedExemplar {
  * The heatmap panel picks up frames with `meta.dataTopic === 'annotations'` and
  * `frame.name === 'exemplar'` to render as diamond markers.
  */
-export function buildExemplarDataFrame(
-  response: SelectHeatmapResponse,
-  unit: string
-): MutableDataFrame | null {
+export function buildExemplarDataFrame(response: SelectHeatmapResponse, unit: string): MutableDataFrame | null {
   const collected: CollectedExemplar[] = [];
 
   for (const series of response.series ?? []) {
@@ -159,7 +145,7 @@ export function buildExemplarDataFrame(
         values: collected.map((e) => e.id),
         config: { displayName: 'Span ID' },
       },
-      ...sortedLabelNames.map((name) => ({
+      ...sortedLabelNames.map((name: string) => ({
         name,
         type: FieldType.string,
         values: collected.map((e) => e.labels[name] ?? ''),

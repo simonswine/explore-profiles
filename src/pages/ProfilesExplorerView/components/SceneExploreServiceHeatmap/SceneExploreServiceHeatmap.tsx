@@ -164,10 +164,9 @@ export class SceneExploreServiceHeatmap extends SceneObjectBase<SceneExploreServ
       });
 
       const { unit } = getProfileMetric(profileTypeId as any);
-      const stepMs = step * 1000;
 
       const series = response.series?.[0];
-      const heatmapFrame = series ? buildHeatmapDataFrame(series, unit, stepMs) ?? undefined : undefined;
+      const heatmapFrame = series ? buildHeatmapDataFrame(series, unit) ?? undefined : undefined;
       const exemplarFrame = buildExemplarDataFrame(response, unit) ?? undefined;
       const exemplarRows = extractExemplarRows(response);
 
