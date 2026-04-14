@@ -3,11 +3,14 @@ import { DataQueryRequest, DataQueryResponse, DataSourceApi, Field, getValueForm
 import { getDataSourceSrv } from '@grafana/runtime';
 import { SceneComponentProps, sceneGraph, SceneObjectBase, SceneObjectState } from '@grafana/scenes';
 import { getProfileMetric } from '@shared/infrastructure/profile-metrics/getProfileMetric';
-import { Select, Spinner, useStyles2 } from '@grafana/ui';
+import { IconButton, Select, Spinner, useStyles2 } from '@grafana/ui';
 import React from 'react';
 import { lastValueFrom, Observable } from 'rxjs';
 
+import { PanelType } from '../SceneByVariableRepeaterGrid/components/ScenePanelTypeSwitcher';
 import { buildUnitFormatter } from '../SceneExploreServiceFlameGraph/components/SceneFunctionDetailsPanel/domain/buildUnitFormatter';
+import { FiltersVariable } from '../../domain/variables/FiltersVariable/FiltersVariable';
+import { EventViewServiceFlameGraph } from '../../domain/events/EventViewServiceFlameGraph';
 import { ExemplarRow } from './infrastructure/buildHeatmapDataFrames';
 import { SceneExploreServiceHeatmap } from './SceneExploreServiceHeatmap';
 
@@ -177,6 +180,25 @@ export class SceneExemplarTable extends SceneObjectBase<SceneExemplarTableState>
     })();
   }
 
+  openFlameGraph(profileId: string, spanId?: string) {
+    const serviceName = sceneGraph.interpolate(this, '$serviceName');
+    const profileMetricId = sceneGraph.interpolate(this, '$profileMetricId');
+    const filters = sceneGraph.findByKeyAndType(this, 'filters', FiltersVariable).state.filters ?? [];
+
+    this.publishEvent(
+      new EventViewServiceFlameGraph({
+        item: {
+          index: 0,
+          value: serviceName,
+          label: serviceName,
+          panelType: PanelType.TIMESERIES,
+          queryRunnerParams: { serviceName, profileMetricId, filters, profileIdSelector: profileId, spanSelector: spanId },
+        },
+      }),
+      true
+    );
+  }
+
   static Component({ model }: SceneComponentProps<SceneExemplarTable>) {
     const styles = useStyles2(getStyles);
     const { rows, traceInfoBySpanId, loadingSpanIds, tempoDatasources, tempoDataSourceUid } = model.useState();
@@ -190,16 +212,15 @@ export class SceneExemplarTable extends SceneObjectBase<SceneExemplarTableState>
       // outside expected parent hierarchy
     }
 
-    const toggleSelection = (spanId: string | undefined) => {
+    const openTrace = (spanId: string | undefined) => {
       if (!parent || !spanId) {
         return;
       }
-      const newSelected = spanId === selectedSpanId ? undefined : spanId;
-      const traceId = newSelected ? traceInfoBySpanId[newSelected]?.traceId : undefined;
+      const traceId = traceInfoBySpanId[spanId]?.traceId;
       parent.setState({
-        selectedSpanId: newSelected,
+        selectedSpanId: spanId,
         selectedTraceId: traceId,
-        tempoDataSourceUid: newSelected ? tempoDataSourceUid : undefined,
+        tempoDataSourceUid: tempoDataSourceUid,
       });
     };
 
@@ -244,7 +265,8 @@ export class SceneExemplarTable extends SceneObjectBase<SceneExemplarTableState>
                   <th>Span name</th>
                   <th>{description || 'Value'}</th>
                   <th>Duration</th>
-                  <th>Trace</th>
+                  <th>Trace ID</th>
+                  <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -257,8 +279,6 @@ export class SceneExemplarTable extends SceneObjectBase<SceneExemplarTableState>
                     <tr
                       key={`${row.spanId ?? row.profileId}-${i}`}
                       className={isSelected ? styles.selectedRow : undefined}
-                      onClick={() => toggleSelection(row.spanId)}
-                      style={{ cursor: row.spanId ? 'pointer' : undefined }}
                     >
                       <td>{formatTimestamp(row.timestamp)}</td>
                       <td className={styles.mono} title={row.spanId}>
@@ -273,30 +293,43 @@ export class SceneExemplarTable extends SceneObjectBase<SceneExemplarTableState>
                           ? (() => { const f = getValueFormat('ns')(traceInfo.duration, 2); return `${f.text}${f.suffix ?? ''}`; })()
                           : isLoading ? <Spinner size="sm" /> : '–'}
                       </td>
-                      <td>
+                      <td className={styles.mono}>
                         {!row.spanId ? (
                           '–'
                         ) : isLoading ? (
                           <Spinner size="sm" />
-                        ) : traceInfo !== undefined ? (
-                          traceInfo !== null ? (
-                            <button
-                              className={styles.traceLink}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                toggleSelection(row.spanId);
-                              }}
-                            >
-                              {traceInfo.traceId.slice(0, 7)}…
-                            </button>
-                          ) : (
-                            '–'
-                          )
+                        ) : traceInfo ? (
+                          traceInfo.traceId.slice(0, 7) + '…'
                         ) : tempoDataSourceUid ? (
                           '–'
                         ) : (
                           <span className={styles.hint}>Select Tempo datasource</span>
                         )}
+                      </td>
+                      <td>
+                        <div className={styles.actionsCell}>
+                          <IconButton
+                            name="fire"
+                            tooltip="Open flame graph"
+                            size="sm"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              model.openFlameGraph(row.profileId, row.spanId);
+                            }}
+                          />
+                          {row.spanId && isLoading && <Spinner size="sm" />}
+                          {row.spanId && traceInfo && (
+                            <IconButton
+                              name="compass"
+                              tooltip="Open trace"
+                              size="sm"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                openTrace(row.spanId);
+                              }}
+                            />
+                          )}
+                        </div>
                       </td>
                     </tr>
                   );
@@ -379,24 +412,15 @@ const getStyles = (theme: GrafanaTheme2) => ({
     font-family: ${theme.typography.fontFamilyMonospace};
     font-size: ${theme.typography.bodySmall.fontSize};
   `,
-  traceLink: css`
-    background: none;
-    border: none;
-    padding: 0;
-    color: ${theme.colors.text.link};
-    text-decoration: underline;
-    cursor: pointer;
-    font-family: ${theme.typography.fontFamilyMonospace};
-    font-size: ${theme.typography.bodySmall.fontSize};
-
-    &:hover {
-      color: ${theme.colors.text.maxContrast};
-    }
-  `,
   hint: css`
     color: ${theme.colors.text.disabled};
     font-style: italic;
     font-size: ${theme.typography.bodySmall.fontSize};
+  `,
+  actionsCell: css`
+    display: flex;
+    align-items: center;
+    gap: ${theme.spacing(0.5)};
   `,
   empty: css`
     padding: ${theme.spacing(4)};

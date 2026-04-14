@@ -397,6 +397,12 @@ export class SceneProfilesExplorer extends SceneObjectBase<SceneProfilesExplorer
       if (item) {
         this.resetDiffTimeRangeAnnotations();
       }
+
+      if (item?.queryRunnerParams?.spanSelector) {
+        sceneGraph
+          .findByKeyAndType(this, 'spanSelector', SpanSelectorVariable)
+          .changeValueTo(item.queryRunnerParams.spanSelector);
+      }
     }
 
     this.setState({
