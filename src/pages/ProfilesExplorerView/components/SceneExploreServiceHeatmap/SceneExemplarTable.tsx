@@ -7,11 +7,11 @@ import {
   getValueFormat,
   GrafanaTheme2,
 } from '@grafana/data';
+import { t } from '@grafana/i18n';
 import { getDataSourceSrv } from '@grafana/runtime';
 import { SceneComponentProps, sceneGraph, SceneObjectBase, SceneObjectState } from '@grafana/scenes';
 import { IconButton, Select, Spinner, useStyles2 } from '@grafana/ui';
 import { getProfileMetric } from '@shared/infrastructure/profile-metrics/getProfileMetric';
-import { t } from '@grafana/i18n';
 import React, { useCallback, useState } from 'react';
 import { lastValueFrom, Observable } from 'rxjs';
 
@@ -65,7 +65,11 @@ function CopyableId({ value, display }: { value: string; display: string }) {
       <span className={styles.text}>{display}</span>
       <IconButton
         name={copied ? 'check' : 'clipboard-alt'}
-        tooltip={copied ? t('heatmap.exemplar-table.copied', 'Copied!') : t('heatmap.exemplar-table.copy-to-clipboard', 'Copy to clipboard')}
+        tooltip={
+          copied
+            ? t('heatmap.exemplar-table.copied', 'Copied!')
+            : t('heatmap.exemplar-table.copy-to-clipboard', 'Copy to clipboard')
+        }
         size="xs"
         className={copied ? styles.iconCopied : styles.icon}
         onClick={handleCopy}
@@ -353,7 +357,15 @@ export class SceneExemplarTable extends SceneObjectBase<SceneExemplarTableState>
                   return (
                     <tr
                       key={`${row.spanId ?? row.profileId}-${i}`}
-                      className={isSelected ? styles.selectedRow : undefined}
+                      className={isSelected ? styles.selectedRow : styles.clickableRow}
+                      onClick={() => {
+                        if (!parent || !row.spanId) {
+                          return;
+                        }
+                        parent.setState({
+                          selectedSpanId: row.spanId === selectedSpanId ? undefined : row.spanId,
+                        });
+                      }}
                     >
                       <td>{formatTimestamp(row.timestamp)}</td>
                       <td className={styles.mono}>
@@ -494,6 +506,10 @@ const getStyles = (theme: GrafanaTheme2) => ({
     background: ${theme.colors.action.selected} !important;
     outline: 1px solid ${theme.colors.primary.border};
     outline-offset: -1px;
+    cursor: pointer;
+  `,
+  clickableRow: css`
+    cursor: pointer;
   `,
   mono: css`
     font-family: ${theme.typography.fontFamilyMonospace};
