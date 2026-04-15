@@ -1,6 +1,5 @@
 import { css } from '@emotion/css';
 import { GrafanaTheme2, MutableDataFrame } from '@grafana/data';
-import { getProfileMetric } from '@shared/infrastructure/profile-metrics/getProfileMetric';
 import {
   SceneComponentProps,
   SceneFlexItem,
@@ -11,6 +10,7 @@ import {
 } from '@grafana/scenes';
 import { Drawer, useStyles2 } from '@grafana/ui';
 import { quoteLabelName } from '@shared/components/QueryBuilder/domain/helpers/quoteLabelName';
+import { getProfileMetric } from '@shared/infrastructure/profile-metrics/getProfileMetric';
 import React from 'react';
 
 import { FiltersVariable } from '../../domain/variables/FiltersVariable/FiltersVariable';
@@ -140,7 +140,9 @@ export class SceneExploreServiceHeatmap extends SceneObjectBase<SceneExploreServ
     const filters = filtersVar.state.filters ?? [];
 
     const completeFilters = [{ key: 'service_name', operator: '=', value: serviceName }, ...filters];
-    const labelSelector = `{${completeFilters.map(({ key, operator, value }) => `${quoteLabelName(key)}${operator}"${value}"`).join(',')}}`;
+    const labelSelector = `{${completeFilters
+      .map(({ key, operator, value }) => `${quoteLabelName(key)}${operator}"${value}"`)
+      .join(',')}}`;
 
     const timeRange = sceneGraph.getTimeRange(this).state.value;
     const start = timeRange.from.valueOf();

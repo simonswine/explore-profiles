@@ -1,5 +1,6 @@
 import { css } from '@emotion/css';
 import { DataLinkClickEvent, LoadingState, MutableDataFrame } from '@grafana/data';
+import { t } from '@grafana/i18n';
 import {
   PanelBuilders,
   SceneComponentProps,
@@ -118,7 +119,7 @@ export class SceneHeatmap extends SceneObjectBase<SceneHeatmapState> {
           ...idField.config,
           links: [
             {
-              title: 'Select exemplar',
+              title: t('heatmap.exemplar.select', 'Select exemplar'),
               url: '',
               onClick: (event: DataLinkClickEvent) => {
                 const spanId = event.replaceVariables?.('${__value.raw}');

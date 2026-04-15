@@ -132,10 +132,7 @@ export class SceneProfilesExplorer extends SceneObjectBase<SceneProfilesExplorer
       {
         value: ExplorationType.HEATMAP,
         label: t('explorer.exploration-type.heatmap', 'Heatmap'),
-        description: t(
-          'explorer.exploration-type.heatmap-description',
-          'Profile heatmap with trace-linked exemplars'
-        ),
+        description: t('explorer.exploration-type.heatmap-description', 'Profile heatmap with trace-linked exemplars'),
       },
     ];
   }
@@ -443,9 +440,12 @@ export class SceneProfilesExplorer extends SceneObjectBase<SceneProfilesExplorer
     // preserve existing filters only when switching to "Labels", "Flame graph" or "Diff flame graph"
     // if not, they will be added to the queries without any notice on the UI
     if (
-      ![ExplorationType.LABELS, ExplorationType.FLAME_GRAPH, ExplorationType.DIFF_FLAME_GRAPH, ExplorationType.HEATMAP].includes(
-        nextExplorationType as ExplorationType
-      )
+      ![
+        ExplorationType.LABELS,
+        ExplorationType.FLAME_GRAPH,
+        ExplorationType.DIFF_FLAME_GRAPH,
+        ExplorationType.HEATMAP,
+      ].includes(nextExplorationType as ExplorationType)
     ) {
       sceneGraph.findByKeyAndType(this, 'filters', FiltersVariable).reset();
     }
