@@ -76,6 +76,7 @@ test.describe('Profile types view', () => {
       await exploreProfilesPage.assertSelectedService('ride-sharing-app');
       await exploreProfilesPage.assertSelectedProfileType('memory/alloc_space');
 
+      await exploreProfilesPage.waitForSceneBodyRendered();
       await expect(exploreProfilesPage.getSceneBody()).toHaveScreenshot({
         stylePath: './e2e/fixtures/css/hide-all-controls.css',
       });
@@ -95,7 +96,7 @@ test.describe('Profile types view', () => {
 
     await expect(exploreProfilesPage.getByTestId('page-title')).toHaveText('Profiles settings (tenant)');
 
-    await exploreProfilesPage.getByLabel('Back to Explore Profiles').click();
+    await exploreProfilesPage.getByLabel('Back to Profiles Drilldown').click();
 
     await assertMainUiElements(exploreProfilesPage);
 

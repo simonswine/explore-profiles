@@ -1,11 +1,9 @@
-# Yarn Berry
+# yarn (legacy transition artifacts, safe to keep ignored)
+.yarn/cache
+.yarn/unplugged
+.yarn/build-state.yml
+.yarn/install-state.gz
 .pnp.*
-.yarn/*
-!.yarn/patches
-!.yarn/releases
-!.yarn/plugins
-!.yarn/sdks
-!.yarn/versions
 
 # Logs
 logs
@@ -36,6 +34,7 @@ work/
 ci/
 
 # E2E
+test-results/
 e2e/test-reports/
 e2e/test-results/
 e2e/auth/
@@ -55,4 +54,7 @@ e2e/tests/**/*darwin.png
 
 # Pyroscope
 samples/static/grafana-pyroscope-sample-blocks-public
+
+# AI workflow artifacts (Claude Code / superpowers)
+docs/superpowers/
 

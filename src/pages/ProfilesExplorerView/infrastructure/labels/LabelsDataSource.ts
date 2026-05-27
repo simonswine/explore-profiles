@@ -7,7 +7,8 @@ import {
   TestDataSourceResponse,
   TimeRange,
 } from '@grafana/data';
-import { RuntimeDataSource, sceneGraph } from '@grafana/scenes';
+import { t } from '@grafana/i18n';
+import { RuntimeDataSource } from '@grafana/scenes';
 import { isPrivateLabel } from '@shared/components/QueryBuilder/domain/helpers/isPrivateLabel';
 import { labelsRepository } from '@shared/infrastructure/labels/labelsRepository';
 import { logger } from '@shared/infrastructure/tracking/logger';
@@ -16,6 +17,7 @@ import pLimit from 'p-limit';
 import { GroupByVariable } from '../../domain/variables/GroupByVariable/GroupByVariable';
 import { computeRoundedTimeRange } from '../../helpers/computeRoundedTimeRange';
 import { PYROSCOPE_LABELS_DATA_SOURCE } from '../pyroscope-data-sources';
+import { safeInterpolate } from '../series/helpers/safeInterpolate';
 import { LabelsApiClient } from './http/LabelsApiClient';
 
 const MAX_CONCURRENT_LABEL_VALUES_REQUESTS = 20;
@@ -50,11 +52,11 @@ export class LabelsDataSource extends RuntimeDataSource {
 
   getParams(options: LegacyMetricFindQueryOptions) {
     const { scopedVars, range } = options;
-    const sceneObject = scopedVars?.__sceneObject?.value as GroupByVariable;
+    const sceneObject = scopedVars?.__sceneObject?.valueOf() as GroupByVariable;
 
-    const dataSourceUid = sceneGraph.interpolate(sceneObject, '$dataSource');
-    const serviceName = sceneGraph.interpolate(sceneObject, '$serviceName');
-    const profileMetricId = sceneGraph.interpolate(sceneObject, '$profileMetricId');
+    const dataSourceUid = safeInterpolate(sceneObject, '$dataSource');
+    const serviceName = safeInterpolate(sceneObject, '$serviceName');
+    const profileMetricId = safeInterpolate(sceneObject, '$profileMetricId');
 
     // we could interpolate ad hoc filters, but the Labels exploration type would reload all labels each time they are modified
     // const filters = sceneGraph.interpolate(sceneObject, '$filters');
@@ -88,7 +90,14 @@ export class LabelsDataSource extends RuntimeDataSource {
     }
   }
 
-  async fetchLabelValues(query: string, from: number, to: number, labelName: string, variableName?: string) {
+  async fetchLabelValues(
+    index: number,
+    query: string,
+    from: number,
+    to: number,
+    labelName: string,
+    variableName?: string
+  ) {
     let values;
 
     try {
@@ -103,21 +112,20 @@ export class LabelsDataSource extends RuntimeDataSource {
     const count = values ? values.length : -1;
 
     return {
-      // TODO: check if there's a better way
-      value: JSON.stringify({
+      value: {
         value: labelName,
         groupBy: {
           label: labelName,
           values: values || [],
         },
-      }),
+      },
       text: `${labelName} (${count > -1 ? count : '?'})`,
       count,
     };
   }
 
   async metricFindQuery(_: string, options: LegacyMetricFindQueryOptions): Promise<MetricFindValue[]> {
-    const sceneObject = options.scopedVars?.__sceneObject?.value as GroupByVariable;
+    const sceneObject = options.scopedVars?.__sceneObject?.valueOf() as GroupByVariable;
 
     // save bandwidth
     // TODO: remove this when we can declare the GroupByVariable in the Scene it's used
@@ -142,18 +150,26 @@ export class LabelsDataSource extends RuntimeDataSource {
     const labelsWithValuesAndCount = await Promise.all(
       labels
         .filter(({ value }) => !isPrivateLabel(value))
-        .map(({ value }) => limit(() => this.fetchLabelValues(query, from, to, value, options.variable?.name)))
+        .map(({ value }, index) =>
+          limit(() => this.fetchLabelValues(index, query, from, to, value, options.variable?.name))
+        )
     );
 
     const sortedLabels = labelsWithValuesAndCount
       .sort((a, b) => b.count - a.count)
-      .map(({ value, text }) => ({ value, text }));
+      .map(({ value, text }, index) => {
+        return {
+          // TODO: check if there's a better way
+          value: JSON.stringify({ ...value, index }),
+          text,
+        };
+      });
 
     return [
       // we do this here because GroupByVariable may set its default value to the 1st element automatically
       {
         value: 'all',
-        text: 'All',
+        text: t('labels.data-source.all', 'All'),
       },
       ...sortedLabels,
     ];
@@ -162,7 +178,7 @@ export class LabelsDataSource extends RuntimeDataSource {
   async testDatasource(): Promise<TestDataSourceResponse> {
     return {
       status: 'success',
-      message: 'OK',
+      message: t('labels.data-source.test-success', 'OK'),
     };
   }
 }

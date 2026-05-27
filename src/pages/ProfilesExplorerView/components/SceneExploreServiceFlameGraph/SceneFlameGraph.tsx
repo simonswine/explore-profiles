@@ -1,28 +1,43 @@
 import { css } from '@emotion/css';
 import { createTheme, GrafanaTheme2, LoadingState, TimeRange } from '@grafana/data';
-import { FlameGraph } from '@grafana/flamegraph';
+import { FlameGraph, Props as FlameGraphProps } from '@grafana/flamegraph';
+import { t, Trans } from '@grafana/i18n';
 import { SceneComponentProps, SceneObjectBase, SceneObjectState, SceneQueryRunner } from '@grafana/scenes';
 import { Spinner, useStyles2, useTheme2 } from '@grafana/ui';
 import { displayWarning } from '@shared/domain/displayStatus';
 import { useMaxNodesFromUrl } from '@shared/domain/url-params/useMaxNodesFromUrl';
 import { useToggleSidePanel } from '@shared/domain/useToggleSidePanel';
+import {
+  useFlagFlameGraphWithCallTree,
+  useFlagMetricsFromProfiles,
+} from '@shared/infrastructure/featureFlags/featureFlags';
 import { getProfileMetric, ProfileMetricId } from '@shared/infrastructure/profile-metrics/getProfileMetric';
 import { useFetchPluginSettings } from '@shared/infrastructure/settings/useFetchPluginSettings';
 import { DomainHookReturnValue } from '@shared/types/DomainHookReturnValue';
+import { InlineBanner } from '@shared/ui/InlineBanner';
 import { Panel } from '@shared/ui/Panel/Panel';
 import { PyroscopeLogo } from '@shared/ui/PyroscopeLogo';
-import React, { useEffect, useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Unsubscribable } from 'rxjs';
 
 import { useBuildPyroscopeQuery } from '../../domain/useBuildPyroscopeQuery';
+import { useGrafanaAssistant } from '../../domain/useGrafanaAssistant';
 import { getSceneVariableValue } from '../../helpers/getSceneVariableValue';
+import { deferSceneQueryRunnerRun } from '../../infrastructure/deferSceneQueryRunnerRun';
 import { buildFlameGraphQueryRunner } from '../../infrastructure/flame-graph/buildFlameGraphQueryRunner';
 import { PYROSCOPE_DATA_SOURCE } from '../../infrastructure/pyroscope-data-sources';
 import { AIButton } from '../SceneAiPanel/components/AiButton/AIButton';
 import { SceneAiPanel } from '../SceneAiPanel/SceneAiPanel';
+import { useCreateRecordingRulesMenu } from '../SceneCreateMetricModal/domain/useMenuOption';
+import { SceneCreateRecordingRuleModal } from '../SceneCreateMetricModal/SceneCreateRecordingRuleModal';
 import { SceneExportMenu } from './components/SceneExportMenu/SceneExportMenu';
 import { useGitHubIntegration } from './components/SceneFunctionDetailsPanel/domain/useGitHubIntegration';
 import { SceneFunctionDetailsPanel } from './components/SceneFunctionDetailsPanel/SceneFunctionDetailsPanel';
+import { RemoveProfileIdSelector } from './domain/events/RemoveProfileIdSelector';
+import { RemoveSpanSelector } from './domain/events/RemoveSpanSelector';
+import { ProfileIdSelectorLabel } from './ProfileIdSelectorLabel';
+import { SceneExploreServiceFlameGraph } from './SceneExploreServiceFlameGraph';
+import { SpanSelectorLabel } from './SpanSelectorLabel';
 
 interface SceneFlameGraphState extends SceneObjectState {
   $data: SceneQueryRunner;
@@ -30,6 +45,7 @@ interface SceneFlameGraphState extends SceneObjectState {
   exportMenu: SceneExportMenu;
   aiPanel: SceneAiPanel;
   functionDetailsPanel: SceneFunctionDetailsPanel;
+  createRecordingRuleModal: SceneCreateRecordingRuleModal;
 }
 
 // I've tried to use a SplitLayout for the body without any success (left: flame graph, right: explain flame graph content)
@@ -46,6 +62,7 @@ export class SceneFlameGraph extends SceneObjectBase<SceneFlameGraphState> {
       exportMenu: new SceneExportMenu(),
       aiPanel: new SceneAiPanel(),
       functionDetailsPanel: new SceneFunctionDetailsPanel(),
+      createRecordingRuleModal: new SceneCreateRecordingRuleModal(),
     });
 
     this.addActivationHandler(this.onActivate.bind(this));
@@ -84,36 +101,47 @@ export class SceneFlameGraph extends SceneObjectBase<SceneFlameGraphState> {
     return (
       <>
         <PyroscopeLogo size="small" />
-        Flame graph for {serviceName} ({profileMetricType})
+        <Trans i18nKey="flame-graph.title" values={{ serviceName, profileMetricType }}>
+          Flame graph for {{ serviceName }} ({{ profileMetricType }})
+        </Trans>
       </>
     );
   }
 
-  useSceneFlameGraph = (): DomainHookReturnValue => {
+  useSceneFlameGraph = (spanSelector: string, profileIdSelector?: string): DomainHookReturnValue => {
     const { isLight } = useTheme2();
     const getTheme = useMemo(() => () => createTheme({ colors: { mode: isLight ? 'light' : 'dark' } }), [isLight]);
 
     const [maxNodes] = useMaxNodesFromUrl();
     const { settings, error: isFetchingSettingsError } = useFetchPluginSettings();
-    const { $data, lastTimeRange, exportMenu, aiPanel, functionDetailsPanel } = this.useState();
+    const { $data, lastTimeRange, exportMenu, aiPanel, functionDetailsPanel, createRecordingRuleModal } =
+      this.useState();
 
     if (isFetchingSettingsError) {
       displayWarning([
-        'Error while retrieving the plugin settings!',
-        'Some features might not work as expected (e.g. collapsed flame graphs). Please try to reload the page, sorry for the inconvenience.',
+        t('flame-graph.settings-error.title', 'Error while retrieving the plugin settings!'),
+        t(
+          'flame-graph.settings-error.message',
+          'Some features might not work as expected (e.g. collapsed flame graphs). Please try to reload the page, sorry for the inconvenience.'
+        ),
       ]);
     }
 
     useEffect(() => {
-      if (maxNodes) {
-        this.setState({
-          $data: buildFlameGraphQueryRunner({ maxNodes }),
-        });
-      }
-    }, [maxNodes]);
+      const runner = buildFlameGraphQueryRunner({ maxNodes, spanSelector, profileIdSelector });
+      this.setState({ $data: runner });
+      return deferSceneQueryRunnerRun(runner);
+    }, [maxNodes, spanSelector, profileIdSelector]);
 
     const $dataState = $data.useState();
-    const isFetchingProfileData = $dataState?.data?.state === LoadingState.Loading;
+    const loadingState = $dataState?.data?.state;
+
+    const fetchProfileError =
+      loadingState === LoadingState.Error
+        ? ($dataState?.data?.errors?.[0] as Error) || new Error('Unknown error!')
+        : null;
+
+    const isFetchingProfileData = loadingState === LoadingState.Loading;
     const profileData = $dataState?.data?.series?.[0];
     const hasProfileData = Number(profileData?.length) > 1;
 
@@ -126,6 +154,8 @@ export class SceneFlameGraph extends SceneObjectBase<SceneFlameGraphState> {
         isFetchingProfileData,
         hasProfileData,
         profileData,
+        spanSelector,
+        fetchProfileError,
         settings,
         export: {
           menu: exportMenu,
@@ -140,6 +170,9 @@ export class SceneFlameGraph extends SceneObjectBase<SceneFlameGraphState> {
           panel: functionDetailsPanel,
           timeRange: lastTimeRange,
         },
+        recordingRules: {
+          modal: createRecordingRuleModal,
+        },
       },
       actions: {
         getTheme,
@@ -147,12 +180,38 @@ export class SceneFlameGraph extends SceneObjectBase<SceneFlameGraphState> {
     };
   };
 
+  removeSpanSelector() {
+    this.publishEvent(new RemoveSpanSelector({}), true);
+  }
+
+  removeProfileIdSelector() {
+    this.publishEvent(new RemoveProfileIdSelector({}), true);
+    (this.parent as SceneExploreServiceFlameGraph)?.reprocessMainTimeseries();
+  }
+
   static Component = ({ model }: SceneComponentProps<SceneFlameGraph>) => {
     const styles = useStyles2(getStyles);
+    const flameGraphWithCallTree = useFlagFlameGraphWithCallTree();
+    const metricsFromProfiles = useFlagMetricsFromProfiles();
 
-    const { data, actions } = model.useSceneFlameGraph();
+    const spanSelector = getSceneVariableValue(model, 'spanSelector');
+    const profileIdSelector = getSceneVariableValue(model, 'profileIdSelector');
+    const { data, actions } = model.useSceneFlameGraph(spanSelector, profileIdSelector);
     const sidePanel = useToggleSidePanel();
     const gitHubIntegration = useGitHubIntegration(sidePanel);
+
+    const { settings } = useFetchPluginSettings();
+
+    const [recordingRulesModalState, setRecordingRulesModalState] = useState<{
+      isOpen: boolean;
+      functionName?: string;
+    }>({ isOpen: false });
+
+    const recordingRulesMenu = useCreateRecordingRulesMenu((functionName?: string) => {
+      setRecordingRulesModalState({ isOpen: true, functionName });
+    });
+
+    const { hideAIButton } = useGrafanaAssistant();
 
     const isAiButtonDisabled = data.isLoading || !data.hasProfileData;
 
@@ -172,6 +231,16 @@ export class SceneFlameGraph extends SceneObjectBase<SceneFlameGraphState> {
       [data.isLoading, data.title, styles.spinner]
     );
 
+    const extraContextMenuButtons: FlameGraphProps['getExtraContextMenuButtons'] = (clickedItemData, data) => {
+      const ghButtons = gitHubIntegration.actions.getExtraFlameGraphMenuItems(clickedItemData, data);
+      const recordingRulesButtons =
+        settings?.enableMetricsFromProfiles && metricsFromProfiles
+          ? recordingRulesMenu.actions.getExtraFlameGraphMenuItems(clickedItemData, data)
+          : [];
+
+      return [...ghButtons, ...recordingRulesButtons];
+    };
+
     return (
       <div className={styles.flex}>
         <Panel
@@ -180,29 +249,53 @@ export class SceneFlameGraph extends SceneObjectBase<SceneFlameGraphState> {
           title={panelTitle}
           isLoading={data.isLoading}
           headerActions={
-            <AIButton
-              disabled={isAiButtonDisabled || sidePanel.isOpen('ai')}
-              onClick={() => sidePanel.open('ai')}
-              interactionName="g_pyroscope_app_explain_flamegraph_clicked"
-            >
-              Explain Flame Graph
-            </AIButton>
+            <>
+              {spanSelector && (
+                <SpanSelectorLabel spanSelector={spanSelector} removeSpanSelector={() => model.removeSpanSelector()} />
+              )}
+              {profileIdSelector && (
+                <ProfileIdSelectorLabel
+                  profileIdSelector={profileIdSelector}
+                  removeProfileIdSelector={() => model.removeProfileIdSelector()}
+                />
+              )}
+              {!hideAIButton && (
+                <AIButton
+                  disabled={isAiButtonDisabled || sidePanel.isOpen('ai')}
+                  onClick={() => sidePanel.open('ai')}
+                  interactionName="g_pyroscope_app_explain_flamegraph_clicked"
+                >
+                  <Trans i18nKey="flame-graph.explain-button">Explain Flame Graph</Trans>
+                </AIButton>
+              )}
+            </>
           }
         >
-          <FlameGraph
-            data={data.profileData as any}
-            disableCollapsing={!data.settings?.collapsedFlamegraphs}
-            getTheme={actions.getTheme as any}
-            getExtraContextMenuButtons={gitHubIntegration.actions.getExtraFlameGraphMenuItems}
-            extraHeaderElements={
-              <data.export.menu.Component
-                model={data.export.menu}
-                query={data.export.query}
-                timeRange={data.export.timeRange}
-              />
-            }
-            keepFocusOnDataChange
-          />
+          {data.fetchProfileError && (
+            <InlineBanner
+              severity="error"
+              title={t('flame-graph.error-loading-profile', 'Error while loading profile data!')}
+              error={data.fetchProfileError}
+            />
+          )}
+
+          {!data.fetchProfileError && (
+            <FlameGraph
+              data={data.profileData as any}
+              disableCollapsing={!data.settings?.collapsedFlamegraphs}
+              getTheme={actions.getTheme as any}
+              getExtraContextMenuButtons={extraContextMenuButtons}
+              extraHeaderElements={
+                <data.export.menu.Component
+                  model={data.export.menu}
+                  query={data.export.query}
+                  timeRange={data.export.timeRange}
+                />
+              }
+              keepFocusOnDataChange
+              enableNewUI={flameGraphWithCallTree}
+            />
+          )}
         </Panel>
 
         {sidePanel.isOpen('ai') && (
@@ -217,6 +310,16 @@ export class SceneFlameGraph extends SceneObjectBase<SceneFlameGraphState> {
             onClose={sidePanel.close}
           />
         )}
+
+        <data.recordingRules.modal.Component
+          model={data.recordingRules.modal}
+          isModalOpen={recordingRulesModalState.isOpen}
+          functionName={recordingRulesModalState.functionName}
+          onDismiss={() => setRecordingRulesModalState({ isOpen: false })}
+          onCreated={() => {
+            setRecordingRulesModalState({ isOpen: false });
+          }}
+        />
       </div>
     );
   };

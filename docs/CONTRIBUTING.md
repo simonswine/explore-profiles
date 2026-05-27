@@ -1,10 +1,10 @@
-# Contributing to Grafana Explore Profiles
+# Contributing to Grafana Profiles Drilldown
 
 Welcome! We're excited that you're interested in contributing. Below are some basic guidelines.
 
 ## Workflow
 
-Grafana Explore Profiles follows a standard GitHub pull request workflow. If you're unfamiliar with this workflow, read the very helpful [Understanding the GitHub flow](https://guides.github.com/introduction/flow/) guide from GitHub.
+Grafana Profiles Drilldown follows a standard GitHub pull request workflow. If you're unfamiliar with this workflow, read the very helpful [Understanding the GitHub flow](https://guides.github.com/introduction/flow/) guide from GitHub.
 
 You are welcome to create draft PRs at any stage of readiness - this
 can be helpful to ask for assistance or to develop an idea.  
@@ -18,15 +18,15 @@ Before a piece of work is finished, it should:
 
 - [Git](https://git-scm.com/downloads)
 - [Node.js](https://nodejs.org/en) v20
-- [Yarn](https://yarnpkg.com/) v4
+- pnpm
 - [Docker](https://www.docker.com/get-started/) or [OrbStack](https://orbstack.dev/download) (lighter alternative)
 
 ## Get started
 
-1. Clone the repository `git clone git@github.com:grafana/explore-profiles.git`
-2. Install the dependencies: `yarn install`
-3. Build the plugin in dev mode: `yarn dev`
-4. Start the Grafana server (with static data): `yarn server:static`
+1. Clone the repository `git clone git@github.com:grafana/profiles-drilldown.git`
+2. Install the dependencies: `pnpm install`
+3. Build the plugin in dev mode: `pnpm run dev`
+4. Start the Grafana server (with static data): `pnpm run server:static`
 5. Optionally, to enable the **GitHub integration feature**, read the "Enable GitHub integration" section below.
 
 Then visit http://localhost:3000/a/grafana-pyroscope-app
@@ -41,12 +41,12 @@ Then visit http://localhost:3000/a/grafana-pyroscope-app
 
 1. If not already done, copy the content of the `.env.local` file to a new `.env` file in the root directory.
 2. Fill in the missing `REMOTE_` values in the `.env` file.
-3. Start the Grafana server: `yarn server:remote`
+3. Start the Grafana server: `pnpm run server:remote`
 
 ### Enable with a local version of Pyroscope
 
 1. Start the local version of Pyroscope (see [Pyroscope's contributing guide](https://github.com/grafana/pyroscope/tree/main/docs/internal/contributing))
-2. Execute `yarn server:local`
+2. Execute `pnpm run server:local`
 
 ### Enable GitHub integration ("Function details")
 
@@ -76,7 +76,7 @@ For more information, refer to the [Flame graph AI](https://grafana.com/docs/gra
 
 For developing in this repo, requirements are generally managed by lint rules and pre-commit hooks. However, for other things, like code organization, please follow the pattern established by the rest of the repo.
 
-In case of doubt, have a look at ["Explore Profiles frontend architecture"](./CODE-ARCHITECTURE.md)
+In case of doubt, have a look at ["Profiles Drilldown frontend architecture"](./CODE-ARCHITECTURE.md)
 
 ### Lint and format your code
 

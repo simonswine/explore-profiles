@@ -61,16 +61,26 @@ export class SettingsPage extends PyroscopePage {
     return this.page.getByTestId('export-settings');
   }
 
-  getFunctionDetailsSettings() {
-    return this.page.getByTestId('function-details-settings');
+  getMetricsFromProfilesCheckbox() {
+    return this.page.getByTestId('metrics-from-profiles').getByRole('switch', {
+      name: 'Enable metrics from profiles',
+    });
+  }
+
+  async setMetricsFromProfilesEnabled(enabled: boolean) {
+    const checkbox = this.getMetricsFromProfilesCheckbox();
+    const isChecked = await checkbox.isChecked();
+
+    if (isChecked !== enabled) {
+      await this.page
+        .getByTestId('metrics-from-profiles')
+        .locator('label[aria-label="Enable metrics from profiles"]')
+        .click();
+    }
   }
 
   getEnableFlamegraphDotComCheckbox() {
     return this.getExportSettings().getByLabel('Toggle export to flamegraph.com');
-  }
-
-  getEnableFunctionDetailsCheckbox() {
-    return this.getFunctionDetailsSettings().getByLabel('Toggle function details');
   }
 
   getSaveSettingsButton() {

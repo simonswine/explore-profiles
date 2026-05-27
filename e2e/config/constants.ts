@@ -14,7 +14,7 @@ function getEnvVars(): EnvVars {
   }, {} as EnvVars);
 
   if (!envVars.E2E_BASE_URL) {
-    throw new Error('Missing E2E_BASE_URL environment variable!');
+    envVars.E2E_BASE_URL = 'http://localhost:3000';
   }
 
   return envVars;
@@ -22,10 +22,16 @@ function getEnvVars(): EnvVars {
 
 export const ENV_VARS = getEnvVars();
 
+export const CHROMIUM_VIEWPORT = { width: 1920, height: 1080 };
+
 export const AUTH_FILE = path.join(process.cwd(), 'e2e', 'auth', 'user.json');
 
-/* Explore Profiles */
+/* Grafana Profiles Drilldown */
 
+/**
+ * If you're adding a new exploration type, please make sure to update the useCurrentServiceName() function
+ * @see src/pages/ProfilesExplorerView/components/SceneCreateMetricModal/SceneCreateRecordingRuleModal.tsx
+ */
 export enum ExplorationType {
   AllServices = 'all',
   ProfileTypes = 'profiles',

@@ -194,6 +194,14 @@ test.describe('Labels view', () => {
 
           await exploreProfilesPage.getCompareButton().click();
 
+          await expect(exploreProfilesPage.getByTestId('diff-flame-graph-panel')).toBeVisible({ timeout: 15000 });
+          await exploreProfilesPage.assertNoSpinner();
+          await expect(exploreProfilesPage.getComparisonPanel('baseline')).toBeVisible();
+          await expect(exploreProfilesPage.getComparisonPanel('comparison')).toBeVisible();
+          // One refresh on the compare panel re-runs time-range queries so graphs re-render
+          await exploreProfilesPage.clickComparisonPanelRefresh('baseline');
+          await exploreProfilesPage.assertNoSpinner();
+
           await expect(exploreProfilesPage.getSceneBody()).toHaveScreenshot({
             stylePath: './e2e/fixtures/css/hide-all-controls.css',
           });
@@ -213,6 +221,45 @@ test.describe('Labels view', () => {
           await expect(exploreProfilesPage.getCompareButton()).toHaveText('Compare (2/2)');
 
           await exploreProfilesPage.getCompareButton().click();
+
+          await expect(exploreProfilesPage.getByTestId('diff-flame-graph-panel')).toBeVisible({ timeout: 15000 });
+          await exploreProfilesPage.assertNoSpinner();
+          await expect(exploreProfilesPage.getComparisonPanel('baseline')).toBeVisible();
+          await expect(exploreProfilesPage.getComparisonPanel('comparison')).toBeVisible();
+          await exploreProfilesPage.clickComparisonPanelRefresh('baseline');
+          await exploreProfilesPage.assertNoSpinner();
+
+          await expect(exploreProfilesPage.getSceneBody()).toHaveScreenshot({
+            stylePath: './e2e/fixtures/css/hide-all-controls.css',
+          });
+        });
+      });
+
+      test.describe('Actions which reset the main timeseries', () => {
+        test.beforeEach(async ({ exploreProfilesPage }) => {
+          const filter = ['vehicle', '=', 'scooter'];
+          await exploreProfilesPage.addFilter(filter);
+          await exploreProfilesPage.assertFilters([filter]);
+        });
+
+        test('Profile type selector', async ({ exploreProfilesPage }) => {
+          await exploreProfilesPage.selectProfileType('process_cpu/samples');
+          await exploreProfilesPage.assertSelectedProfileType('process_cpu/samples');
+          await exploreProfilesPage.assertNoSpinner();
+
+          await expect(exploreProfilesPage.getSceneBody()).toHaveScreenshot({
+            stylePath: './e2e/fixtures/css/hide-all-controls.css',
+          });
+        });
+
+        test('Service selector', async ({ exploreProfilesPage }) => {
+          await exploreProfilesPage.selectProfileType('process_cpu/samples');
+          await exploreProfilesPage.assertSelectedProfileType('process_cpu/samples');
+
+          await exploreProfilesPage.selectService('pyroscope');
+          await exploreProfilesPage.assertSelectedService('pyroscope');
+
+          await exploreProfilesPage.assertNoSpinner();
 
           await expect(exploreProfilesPage.getSceneBody()).toHaveScreenshot({
             stylePath: './e2e/fixtures/css/hide-all-controls.css',
@@ -237,7 +284,7 @@ test.describe('Labels view', () => {
   test('Panel type switcher', async ({ exploreProfilesPage }) => {
     await exploreProfilesPage.assertNoSpinner();
 
-    for (const panelType of ['Totals', 'Histograms']) {
+    for (const panelType of ['Totals', 'Maxima', 'Histograms']) {
       await exploreProfilesPage.selectPanelType(panelType);
 
       await expect(exploreProfilesPage.getGroupByContainer()).toHaveScreenshot({
@@ -250,9 +297,12 @@ test.describe('Labels view', () => {
     await exploreProfilesPage.assertNoSpinner();
 
     await exploreProfilesPage.selectLayout('Rows');
+    await exploreProfilesPage.assertNoSpinner();
 
-    await expect(exploreProfilesPage.getGroupByContainer()).toHaveScreenshot({
+    // Match favorites/all-services layout switcher: full scene body is less flaky than groupByContainer alone
+    await expect(exploreProfilesPage.getSceneBody()).toHaveScreenshot({
       stylePath: './e2e/fixtures/css/hide-all-controls.css',
+      maxDiffPixelRatio: 0.03,
     });
   });
 

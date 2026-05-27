@@ -1,7 +1,11 @@
 import { css, cx } from '@emotion/css';
 import { GrafanaTheme2 } from '@grafana/data';
-import { useChromeHeaderHeight } from '@grafana/runtime';
-import { Field, Icon, IconButton, useStyles2 } from '@grafana/ui';
+import { t } from '@grafana/i18n';
+import { useChromeHeaderHeight, usePluginComponent } from '@grafana/runtime';
+import { Dropdown, ErrorBoundary, Field, Icon, IconButton, Menu, useStyles2 } from '@grafana/ui';
+import { SaveSearchButton } from '@shared/components/SavedSearches/SaveSearchButton';
+import { useFlagMetricsFromProfiles } from '@shared/infrastructure/featureFlags/featureFlags';
+import { useFetchPluginSettings } from '@shared/infrastructure/settings/useFetchPluginSettings';
 import { PluginInfo } from '@shared/ui/PluginInfo';
 import React from 'react';
 
@@ -11,25 +15,62 @@ import { useHeader } from './domain/useHeader';
 import { ExplorationTypeSelector } from './ui/ExplorationTypeSelector';
 
 export type HeaderProps = {
+  model: SceneProfilesExplorer;
   explorationType: SceneProfilesExplorerState['explorationType'];
   controls: SceneProfilesExplorerState['controls'];
   body: SceneProfilesExplorerState['body'];
   $variables: SceneProfilesExplorerState['$variables'];
+  loadSearchScene: SceneProfilesExplorerState['loadSearchScene'];
   onChangeExplorationType: (explorationType: string) => void;
+  onCreateRecordingRule: () => void;
+  isEmbedded?: boolean;
 };
 
 export function Header(props: HeaderProps) {
   const chromeHeaderHeight = useChromeHeaderHeight?.();
-  const styles = useStyles2(getStyles, chromeHeaderHeight ?? 0);
+  const styles = useStyles2(getStyles, chromeHeaderHeight ?? 0, props.isEmbedded ?? false);
 
   const { data, actions } = useHeader(props);
 
-  const { explorationType, dataSourceVariable, timePickerControl, refreshPickerControl, sceneVariables, gridControls } =
-    data;
+  const { settings } = useFetchPluginSettings();
+  const metricsFromProfiles = useFlagMetricsFromProfiles();
+
+  const {
+    explorationType,
+    dataSourceVariable,
+    timePickerControl,
+    refreshPickerControl,
+    sceneVariables,
+    gridControls,
+    serviceName,
+  } = data;
+
+  type InsightsLauncherProps = {
+    dataSourceUid: string;
+    serviceName?: string;
+  };
+  const { component: InsightsLauncher } = usePluginComponent<InsightsLauncherProps>(
+    'grafana-o11yinsights-app/insights-launcher/v1'
+  );
+
+  const metricsFromProfilesMenu = (
+    <Menu>
+      <Menu.Item
+        ariaLabel={t('explorer.header.view-recording-rules', 'View recording rules')}
+        label={t('explorer.header.view-recording-rules', 'View recording rules')}
+        onClick={actions.onClickRecordingRules}
+      />
+      <Menu.Item
+        ariaLabel={t('explorer.header.add-recording-rule', 'Add recording rule')}
+        label={t('explorer.header.add-recording-rule', 'Add recording rule')}
+        onClick={props.onCreateRecordingRule}
+      />
+    </Menu>
+  );
 
   return (
     <div className={styles.header} data-testid="allControls">
-      <GiveFeedbackButton />
+      {!props.isEmbedded && <GiveFeedbackButton />}
 
       <div className={styles.appControls} data-testid="appControls">
         <div className={styles.appControlsLeft}>
@@ -41,6 +82,21 @@ export function Header(props: HeaderProps) {
         </div>
 
         <div className={styles.appControlsRight}>
+          {InsightsLauncher && (
+            <ErrorBoundary>
+              {({ error }) =>
+                error ? undefined : (
+                  <InsightsLauncher dataSourceUid={dataSourceVariable.getValueText()} serviceName={serviceName} />
+                )
+              }
+            </ErrorBoundary>
+          )}
+
+          {!props.isEmbedded && <SaveSearchButton sceneRef={props.model} />}
+          {!props.isEmbedded && props.loadSearchScene && (
+            <props.loadSearchScene.Component model={props.loadSearchScene} />
+          )}
+
           {timePickerControl && (
             <timePickerControl.Component key={timePickerControl.state.key} model={timePickerControl} />
           )}
@@ -48,28 +104,54 @@ export function Header(props: HeaderProps) {
             <refreshPickerControl.Component key={refreshPickerControl.state.key} model={refreshPickerControl} />
           )}
 
-          <div className={styles.appMiscButtons}>
-            <IconButton name="cog" tooltip="View/edit tenant settings" onClick={actions.onClickUserSettings} />
+          {!props.isEmbedded && (
+            <div className={styles.appMiscButtons}>
+              {settings?.enableMetricsFromProfiles && metricsFromProfiles && (
+                <>
+                  <Dropdown overlay={metricsFromProfilesMenu}>
+                    <IconButton
+                      name="gf-prometheus"
+                      tooltip={t('explorer.header.recording-rules-tooltip', 'Recording rules')}
+                      aria-label={t('explorer.header.recording-rules-tooltip', 'Recording rules')}
+                    />
+                  </Dropdown>
+                </>
+              )}
 
-            <IconButton
-              name="share-alt"
-              tooltip="Copy shareable link to the clipboard"
-              onClick={actions.onClickShareLink}
-            />
+              <IconButton
+                name="upload"
+                tooltip={t('explorer.header.upload-tooltip', 'Upload ad hoc profiles')}
+                onClick={actions.onClickAdHoc}
+              />
 
-            <PluginInfo />
-          </div>
+              <IconButton
+                name="cog"
+                tooltip={t('explorer.header.settings-tooltip', 'View/edit tenant settings')}
+                onClick={actions.onClickUserSettings}
+              />
+
+              <IconButton
+                name="share-alt"
+                tooltip={t('explorer.header.share-tooltip', 'Copy shareable link to the clipboard')}
+                onClick={actions.onClickShareLink}
+              />
+
+              <PluginInfo />
+            </div>
+          )}
         </div>
       </div>
 
       <div id={`scene-controls-${explorationType}`} className={styles.sceneControls} data-testid="sceneControls">
-        <Field
-          label={dataSourceVariable.state.label}
-          className={cx(styles.sceneVariable, dataSourceVariable.state.name)}
-          data-testid={dataSourceVariable.state.name}
-        >
-          <dataSourceVariable.Component model={dataSourceVariable} />
-        </Field>
+        {!props.isEmbedded && (
+          <Field
+            label={dataSourceVariable.state.label}
+            className={cx(styles.sceneVariable, dataSourceVariable.state.name)}
+            data-testid={dataSourceVariable.state.name}
+          >
+            <dataSourceVariable.Component model={dataSourceVariable} />
+          </Field>
+        )}
 
         {sceneVariables.map((variable) => (
           <Field
@@ -101,11 +183,11 @@ export function Header(props: HeaderProps) {
   );
 }
 
-const getStyles = (theme: GrafanaTheme2, chromeHeaderHeight: number) => ({
+const getStyles = (theme: GrafanaTheme2, chromeHeaderHeight: number, isEmbedded: boolean) => ({
   header: css`
-    background-color: ${theme.colors.background.canvas};
+    background-color: ${isEmbedded ? theme.colors.background.primary : theme.colors.background.canvas};
     position: sticky;
-    top: ${chromeHeaderHeight}px;
+    top: ${isEmbedded ? 0 : chromeHeaderHeight}px;
     z-index: 1;
     padding-bottom: ${theme.spacing(2)};
   `,
@@ -114,6 +196,7 @@ const getStyles = (theme: GrafanaTheme2, chromeHeaderHeight: number) => ({
     padding: ${theme.spacing(1)} 0;
     justify-content: space-between;
     gap: ${theme.spacing(2)};
+    flex-flow: wrap;
   `,
   appControlsLeft: css`
     display: flex;
@@ -121,6 +204,7 @@ const getStyles = (theme: GrafanaTheme2, chromeHeaderHeight: number) => ({
   `,
   appControlsRight: css`
     display: flex;
+    align-items: center;
     gap: ${theme.spacing(1)};
   `,
   appMiscButtons: css`

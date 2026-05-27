@@ -1,7 +1,9 @@
 import { css } from '@emotion/css';
+import { AdHocVariableFilter } from '@grafana/data';
+import { t } from '@grafana/i18n';
+import { locationService } from '@grafana/runtime';
 import {
   EmbeddedSceneState,
-  getUrlSyncManager,
   SceneComponentProps,
   sceneGraph,
   SceneObject,
@@ -16,12 +18,14 @@ import {
   SplitLayout,
 } from '@grafana/scenes';
 import { useStyles2 } from '@grafana/ui';
+import { LoadSearchScene } from '@shared/components/SavedSearches/LoadSearchScene';
 import { displayError } from '@shared/domain/displayStatus';
 import { prepareHistoryEntry } from '@shared/domain/prepareHistoryEntry';
 import { reportInteraction } from '@shared/domain/reportInteraction';
 import { DomainHookReturnValue } from '@shared/types/DomainHookReturnValue';
-import React from 'react';
+import React, { useState } from 'react';
 
+import { setupKeyboardShortcuts } from '../../../../services/keyboardShortcuts';
 import { SceneExploreAllServices } from '../../components/SceneExploreAllServices/SceneExploreAllServices';
 import { SceneExploreFavorites } from '../../components/SceneExploreFavorites/SceneExploreFavorites';
 import { SceneExploreServiceLabels } from '../../components/SceneExploreServiceLabels/SceneExploreServiceLabels';
@@ -33,9 +37,11 @@ import { EventViewServiceLabels } from '../../domain/events/EventViewServiceLabe
 import { EventViewServiceProfiles } from '../../domain/events/EventViewServiceProfiles';
 import { FiltersVariable } from '../../domain/variables/FiltersVariable/FiltersVariable';
 import { GroupByVariable } from '../../domain/variables/GroupByVariable/GroupByVariable';
+import { ProfileIdSelectorVariable } from '../../domain/variables/ProfileIdSelectorVariable';
 import { ProfileMetricVariable } from '../../domain/variables/ProfileMetricVariable';
 import { ProfilesDataSourceVariable } from '../../domain/variables/ProfilesDataSourceVariable';
 import { ServiceNameVariable } from '../../domain/variables/ServiceNameVariable/ServiceNameVariable';
+import { SpanSelectorVariable } from '../../domain/variables/SpanSelectorVariable';
 import { FavoritesDataSource } from '../../infrastructure/favorites/FavoritesDataSource';
 import { LabelsDataSource } from '../../infrastructure/labels/LabelsDataSource';
 import { SeriesDataSource } from '../../infrastructure/series/SeriesDataSource';
@@ -44,8 +50,12 @@ import { SceneNoDataSwitcher } from '../SceneByVariableRepeaterGrid/components/S
 import { ScenePanelTypeSwitcher } from '../SceneByVariableRepeaterGrid/components/ScenePanelTypeSwitcher';
 import { SceneQuickFilter } from '../SceneByVariableRepeaterGrid/components/SceneQuickFilter';
 import { GridItemData } from '../SceneByVariableRepeaterGrid/types/GridItemData';
+import { SceneCreateRecordingRuleModal } from '../SceneCreateMetricModal/SceneCreateRecordingRuleModal';
 import { SceneExploreDiffFlameGraph } from '../SceneExploreDiffFlameGraph/SceneExploreDiffFlameGraph';
 import { GitHubContextProvider } from '../SceneExploreServiceFlameGraph/components/SceneFunctionDetailsPanel/components/GitHubContextProvider/GitHubContextProvider';
+import { FunctionVersionProvider } from '../SceneExploreServiceFlameGraph/components/SceneFunctionDetailsPanel/domain/FunctionVersionContext';
+import { RemoveProfileIdSelector } from '../SceneExploreServiceFlameGraph/domain/events/RemoveProfileIdSelector';
+import { RemoveSpanSelector } from '../SceneExploreServiceFlameGraph/domain/events/RemoveSpanSelector';
 import { SceneExploreServiceFlameGraph } from '../SceneExploreServiceFlameGraph/SceneExploreServiceFlameGraph';
 import { Header } from './components/Header';
 
@@ -55,6 +65,11 @@ export interface SceneProfilesExplorerState extends Partial<EmbeddedSceneState> 
   gridControls: Array<SceneObject & { key?: string }>;
   explorationType?: ExplorationType;
   body?: SplitLayout;
+  createRecordingRuleModal: SceneCreateRecordingRuleModal;
+  loadSearchScene: LoadSearchScene;
+  isEmbedded?: boolean;
+  initialFilters?: AdHocVariableFilter[];
+  initialDS?: string;
 }
 
 export enum ExplorationType {
@@ -67,66 +82,99 @@ export enum ExplorationType {
 }
 
 export class SceneProfilesExplorer extends SceneObjectBase<SceneProfilesExplorerState> {
-  static EXPLORATION_TYPE_OPTIONS = [
-    {
-      value: ExplorationType.ALL_SERVICES,
-      label: 'All services',
-      description: 'Overview of all services, for any given profile type',
-    },
-    {
-      value: ExplorationType.PROFILE_TYPES,
-      label: 'Profile types',
-      description: 'Overview of all the profile types for a single service',
-    },
-    {
-      value: ExplorationType.LABELS,
-      label: 'Labels',
-      description: 'Single service label exploration and filtering',
-    },
-    {
-      value: ExplorationType.FLAME_GRAPH,
-      label: 'Flame graph',
-      description: 'Single service flame graph',
-    },
-    {
-      value: ExplorationType.DIFF_FLAME_GRAPH,
-      label: 'Diff flame graph',
-      description: 'Compare the differences between two flame graphs',
-    },
-    {
-      value: ExplorationType.FAVORITES,
-      label: 'Favorites',
-      description: 'Overview of favorited visualizations',
-      icon: 'favorite',
-    },
-  ];
+  static get EXPLORATION_TYPE_OPTIONS() {
+    return [
+      {
+        value: ExplorationType.ALL_SERVICES,
+        label: t('explorer.exploration-type.all-services', 'All services'),
+        description: t(
+          'explorer.exploration-type.all-services-description',
+          'Overview of all services, for any given profile type'
+        ),
+      },
+      {
+        value: ExplorationType.PROFILE_TYPES,
+        label: t('explorer.exploration-type.profile-types', 'Profile types'),
+        description: t(
+          'explorer.exploration-type.profile-types-description',
+          'Overview of all the profile types for a single service'
+        ),
+      },
+      {
+        value: ExplorationType.LABELS,
+        label: t('explorer.exploration-type.labels', 'Labels'),
+        description: t(
+          'explorer.exploration-type.labels-description',
+          'Single service label exploration and filtering'
+        ),
+      },
+      {
+        value: ExplorationType.FLAME_GRAPH,
+        label: t('explorer.exploration-type.flame-graph', 'Flame graph'),
+        description: t('explorer.exploration-type.flame-graph-description', 'Single service flame graph'),
+      },
+      {
+        value: ExplorationType.DIFF_FLAME_GRAPH,
+        label: t('explorer.exploration-type.diff-flame-graph', 'Diff flame graph'),
+        description: t(
+          'explorer.exploration-type.diff-flame-graph-description',
+          'Compare the differences between two flame graphs'
+        ),
+      },
+      {
+        value: ExplorationType.FAVORITES,
+        label: t('explorer.exploration-type.favorites', 'Favorites'),
+        description: t('explorer.exploration-type.favorites-description', 'Overview of favorited visualizations'),
+        icon: 'favorite',
+      },
+    ];
+  }
 
-  static DEFAULT_EXPLORATION_TYPE = SceneProfilesExplorer.EXPLORATION_TYPE_OPTIONS[0].value;
+  /** Must not read `EXPLORATION_TYPE_OPTIONS` here — that getter calls `t()` and runs while the class body initializes (before i18n in embedded lazy chunks). */
+  static DEFAULT_EXPLORATION_TYPE = ExplorationType.ALL_SERVICES;
 
   protected _urlSync = new SceneObjectUrlSyncConfig(this, { keys: ['explorationType'] });
+  private initialFilters?: AdHocVariableFilter[];
 
-  constructor() {
+  public constructor(state: Partial<SceneProfilesExplorerState>) {
     super({
       key: 'profiles-explorer',
-      explorationType: undefined,
+      explorationType: state.initialFilters && state.initialFilters.length > 0 ? ExplorationType.LABELS : undefined,
       body: undefined,
-      $timeRange: new SceneTimeRange(getDefaultTimeRange()),
-      $variables: new SceneVariableSet({
-        // in order to sync with the URL and...
-        // ...because of a limitation of the Scenes library, we have to create them now, once, and not every time we set a new exploration type
-        // also, we prevent re-creating all variables when switching exploration type, which would lead to unecessary work and layout shifts in the UI
-        // (because values would be empty before loading, then populated after fetched)
-        // see setExplorationType() for dynamic updates
-        variables: [
-          new ProfilesDataSourceVariable(),
-          new ServiceNameVariable(),
-          new ProfileMetricVariable(),
-          new FiltersVariable({ key: 'filters' }),
-          new FiltersVariable({ key: 'filtersBaseline' }),
-          new FiltersVariable({ key: 'filtersComparison' }),
-          new GroupByVariable(),
-        ],
-      }),
+      $timeRange: state?.$timeRange ?? new SceneTimeRange(getDefaultTimeRange()),
+      $variables:
+        state?.$variables ??
+        new SceneVariableSet({
+          // in order to sync with the URL and...
+          // ...because of a limitation of the Scenes library, we have to create them now, once, and not every time we set a new exploration type
+          // also, we prevent re-creating all variables when switching exploration type, which would lead to unecessary work and layout shifts in the UI
+          // (because values would be empty before loading, then populated after fetched)
+          // see setExplorationType() for dynamic updates
+          variables: [
+            new ProfilesDataSourceVariable({ initialDS: state?.initialDS }),
+            new ServiceNameVariable({ initialFilters: state?.initialFilters }),
+            new ProfileMetricVariable(),
+            new FiltersVariable({
+              key: 'filters',
+              initialFilters: (() => {
+                if (!state?.initialFilters) {
+                  return undefined;
+                }
+                const filtered = state.initialFilters.filter(
+                  (filter: AdHocVariableFilter) => filter.key !== 'service_name'
+                );
+                return filtered.length > 0 ? filtered : undefined;
+              })(),
+            }),
+            new FiltersVariable({ key: 'filtersBaseline' }),
+            new FiltersVariable({ key: 'filtersComparison' }),
+            new GroupByVariable(),
+            new ProfileIdSelectorVariable(),
+            new SpanSelectorVariable(),
+          ],
+        }),
+      createRecordingRuleModal: new SceneCreateRecordingRuleModal(),
+      loadSearchScene: new LoadSearchScene(),
       controls: [new SceneTimePicker({ isOnCanvas: true }), new SceneRefreshPicker({ isOnCanvas: true })],
       // these scenes also sync with the URL so...
       // ...because of a limitation of the Scenes library, we have to create them now, once, and not every time we set a new exploration type
@@ -136,17 +184,19 @@ export class SceneProfilesExplorer extends SceneObjectBase<SceneProfilesExplorer
         new SceneLayoutSwitcher(),
         new SceneNoDataSwitcher(),
       ],
+      isEmbedded: state?.isEmbedded,
     });
-
-    getUrlSyncManager().initSync(this);
 
     this.registerRuntimeDataSources();
 
+    this.initialFilters = state?.initialFilters;
     this.addActivationHandler(this.onActivate.bind(this));
   }
 
   onActivate() {
+    const varSub = this.subscribeToVariableChanges();
     const eventsSub = this.subscribeToEvents();
+    const clearKeyBindings = setupKeyboardShortcuts(this);
 
     if (!this.state.explorationType) {
       this.setExplorationType({
@@ -155,7 +205,9 @@ export class SceneProfilesExplorer extends SceneObjectBase<SceneProfilesExplorer
     }
 
     return () => {
+      clearKeyBindings();
       eventsSub.unsubscribe();
+      varSub.unsubscribe();
     };
   }
 
@@ -166,6 +218,12 @@ export class SceneProfilesExplorer extends SceneObjectBase<SceneProfilesExplorer
   }
 
   updateFromUrl(values: SceneObjectUrlValues) {
+    // Don't update from URL if initialFilters are provided - we want to select the LABELS view as we are in embedded mode
+    if (this.initialFilters && this.initialFilters.length > 0) {
+      this.setExplorationType({ type: ExplorationType.LABELS, comesFromUserAction: false });
+      return;
+    }
+
     if (typeof values.explorationType === 'string' && values.explorationType !== this.state.explorationType) {
       const type = values.explorationType as ExplorationType;
       this.setExplorationType({
@@ -190,6 +248,59 @@ export class SceneProfilesExplorer extends SceneObjectBase<SceneProfilesExplorer
         ]);
       }
     }
+  }
+
+  subscribeToVariableChanges() {
+    const dataSourceSub = sceneGraph
+      .findByKeyAndType(this, 'dataSource', ProfilesDataSourceVariable)
+      .subscribeToState((newState, prevState) => {
+        if (newState.value && newState.value !== prevState.value) {
+          FiltersVariable.resetAll(this);
+          this.resetDiffTimeRangeAnnotations();
+          this.resetSpanSelector();
+        }
+      });
+
+    const serviceNameSub = sceneGraph
+      .findByKeyAndType(this, 'serviceName', ServiceNameVariable)
+      .subscribeToState((newState, prevState) => {
+        if (newState.value && newState.value !== prevState.value) {
+          FiltersVariable.resetAll(this);
+          this.resetDiffTimeRangeAnnotations();
+
+          // This is to prevent removing the span selector if the previous service name was not correct
+          // This way a user can still select the service name for selected span in case there's a mismatch
+          // in the service name that was provided from the trace
+          if (newState.options.some((option) => option.value === prevState.value)) {
+            this.resetSpanSelector();
+          }
+        }
+      });
+
+    const profileTypeSub = sceneGraph
+      .findByKeyAndType(this, 'profileMetricId', ProfileMetricVariable)
+      .subscribeToState((newState, prevState) => {
+        if (newState.value && newState.value !== prevState.value) {
+          this.resetSpanSelector();
+        }
+      });
+
+    const filtersSub = sceneGraph
+      .findByKeyAndType(this, 'filters', FiltersVariable)
+      .subscribeToState((newState, prevState) => {
+        if (JSON.stringify(newState.filters) !== JSON.stringify(prevState.filters)) {
+          this.resetSpanSelector();
+        }
+      });
+
+    return {
+      unsubscribe() {
+        serviceNameSub.unsubscribe();
+        dataSourceSub.unsubscribe();
+        filtersSub.unsubscribe();
+        profileTypeSub.unsubscribe();
+      },
+    };
   }
 
   subscribeToEvents() {
@@ -218,18 +329,24 @@ export class SceneProfilesExplorer extends SceneObjectBase<SceneProfilesExplorer
     });
 
     const diffFlameGraphSub = this.subscribeToEvent(EventViewDiffFlameGraph, (event) => {
-      const { useAncestorTimeRange, clearDiffRange, baselineFilters, comparisonFilters } = event.payload;
+      const { baselineFilters, comparisonFilters } = event.payload;
 
       this.setExplorationType({
         type: ExplorationType.DIFF_FLAME_GRAPH,
         comesFromUserAction: true,
         bodySceneOptions: {
-          useAncestorTimeRange,
-          clearDiffRange,
           baselineFilters,
           comparisonFilters,
         },
       });
+    });
+
+    const removeSpanSelectorSub = this.subscribeToEvent(RemoveSpanSelector, () => {
+      this.resetSpanSelector();
+    });
+
+    const removeProfileIdSelectorSub = this.subscribeToEvent(RemoveProfileIdSelector, () => {
+      this.resetProfileIdSelector();
     });
 
     return {
@@ -238,6 +355,8 @@ export class SceneProfilesExplorer extends SceneObjectBase<SceneProfilesExplorer
         flameGraphSub.unsubscribe();
         labelsSub.unsubscribe();
         profilesSub.unsubscribe();
+        removeSpanSelectorSub.unsubscribe();
+        removeProfileIdSelectorSub.unsubscribe();
       },
     };
   }
@@ -256,6 +375,12 @@ export class SceneProfilesExplorer extends SceneObjectBase<SceneProfilesExplorer
     if (comesFromUserAction) {
       prepareHistoryEntry();
       this.resetVariables(type);
+
+      // Only reset diff time ranges if a panel from "All services" was
+      // selected.
+      if (item) {
+        this.resetDiffTimeRangeAnnotations();
+      }
     }
 
     this.setState({
@@ -264,10 +389,34 @@ export class SceneProfilesExplorer extends SceneObjectBase<SceneProfilesExplorer
     });
   }
 
+  resetSpanSelector() {
+    sceneGraph.findByKeyAndType(this, 'spanSelector', SpanSelectorVariable).reset();
+  }
+
+  resetProfileIdSelector() {
+    sceneGraph.findByKeyAndType(this, 'profileIdSelector', ProfileIdSelectorVariable).reset();
+  }
+
+  resetDiffTimeRangeAnnotations() {
+    locationService.partial(
+      {
+        diffFrom: '',
+        diffTo: '',
+        'diffFrom-2': '',
+        'diffTo-2': '',
+        comparisonFrom: '',
+        comparisonTo: '',
+      },
+      true
+    );
+  }
+
   resetVariables(nextExplorationType: string) {
     sceneGraph.findByKeyAndType(this, 'quick-filter', SceneQuickFilter).reset();
     sceneGraph.findByKeyAndType(this, 'groupBy', GroupByVariable).changeValueTo(GroupByVariable.DEFAULT_VALUE);
     sceneGraph.findByKeyAndType(this, 'panel-type-switcher', ScenePanelTypeSwitcher).reset();
+    sceneGraph.findByKeyAndType(this, 'profileIdSelector', ProfileIdSelectorVariable).reset();
+    this.resetSpanSelector();
 
     // preserve existing filters only when switching to "Labels", "Flame graph" or "Diff flame graph"
     // if not, they will be added to the queries without any notice on the UI
@@ -276,9 +425,7 @@ export class SceneProfilesExplorer extends SceneObjectBase<SceneProfilesExplorer
         nextExplorationType as ExplorationType
       )
     ) {
-      sceneGraph.findByKeyAndType(this, 'filters', FiltersVariable).setState({
-        filters: FiltersVariable.DEFAULT_VALUE,
-      });
+      sceneGraph.findByKeyAndType(this, 'filters', FiltersVariable).reset();
     }
   }
 
@@ -347,25 +494,51 @@ export class SceneProfilesExplorer extends SceneObjectBase<SceneProfilesExplorer
   };
 
   static Component({ model }: SceneComponentProps<SceneProfilesExplorer>) {
-    const styles = useStyles2(getStyles); // eslint-disable-line react-hooks/rules-of-hooks
+    const styles = useStyles2(getStyles);
 
     const { data, actions } = model.useProfilesExplorer();
     const { explorationType, controls, body, $variables, dataSourceUid } = data;
 
-    return (
-      <GitHubContextProvider dataSourceUid={dataSourceUid}>
-        <Header
-          explorationType={explorationType}
-          controls={controls}
-          body={body}
-          $variables={$variables}
-          onChangeExplorationType={actions.onChangeExplorationType}
-        />
+    const [recordingRulesModalState, setRecordingRulesModalState] = useState<{
+      isOpen: boolean;
+      functionName?: string;
+    }>({ isOpen: false });
+    const { createRecordingRuleModal, isEmbedded, loadSearchScene } = model.useState();
 
-        <div className={styles.body} data-testid="sceneBody">
-          {body && <body.Component model={body} />}
-        </div>
-      </GitHubContextProvider>
+    return (
+      <FunctionVersionProvider>
+        <GitHubContextProvider dataSourceUid={dataSourceUid}>
+          <Header
+            model={model}
+            explorationType={explorationType}
+            controls={controls}
+            body={body}
+            $variables={$variables}
+            loadSearchScene={loadSearchScene}
+            onChangeExplorationType={actions.onChangeExplorationType}
+            isEmbedded={isEmbedded}
+            onCreateRecordingRule={() => {
+              setRecordingRulesModalState({ isOpen: true });
+            }}
+          />
+
+          <div className={styles.body} data-testid="sceneBody">
+            {body && <body.Component model={body} />}
+          </div>
+
+          {recordingRulesModalState.isOpen && (
+            <SceneCreateRecordingRuleModal.Component
+              model={createRecordingRuleModal}
+              isModalOpen={recordingRulesModalState.isOpen}
+              functionName={recordingRulesModalState.functionName}
+              onDismiss={() => setRecordingRulesModalState({ isOpen: false })}
+              onCreated={() => {
+                setRecordingRulesModalState({ isOpen: false });
+              }}
+            />
+          )}
+        </GitHubContextProvider>
+      </FunctionVersionProvider>
     );
   }
 }

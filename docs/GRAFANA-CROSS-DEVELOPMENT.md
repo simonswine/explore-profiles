@@ -1,4 +1,4 @@
-# Developing the Explore Profiles plugin with a local version of Grafana
+# Developing the Grafana Profiles Drilldown plugin with a local version of Grafana
 
 In some cases, you might want to:
 
@@ -23,7 +23,7 @@ This section describes how you can set up your local development environment to 
 
 ```ini
 [paths]
-plugins = /path/to/the/explore-profiles/folder
+plugins = /path/to/the/profiles-drilldown/folder
 ```
 
 The [plugins option](https://grafana.com/docs/grafana/latest/setup-grafana/configure-grafana/#plugins) lets you customize where Grafana will look for plugins.
@@ -37,7 +37,7 @@ See the [Configure Grafana documentation](https://grafana.com/docs/grafana/lates
 In the terminal, execute:
 
 ```shell
-yarn dev
+pnpm run dev
 ```
 
 to build the frontend assets.
@@ -47,7 +47,7 @@ to build the frontend assets.
 In a different terminal tab execute:
 
 ```shell
-yarn start
+pnpm start
 ```
 
 to build the frontend assets.

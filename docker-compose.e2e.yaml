@@ -5,7 +5,7 @@ services:
       context: ./.config
       args:
         grafana_image: ${GRAFANA_IMAGE:-grafana-enterprise}
-        grafana_version: ${GRAFANA_VERSION:-11.3.2}
+        grafana_version: ${GRAFANA_VERSION:-12.3.0}
     ports:
       - ${GRAFANA_PORT:-3000}:3000/tcp
     volumes:
@@ -16,9 +16,10 @@ services:
       GF_INSTALL_PLUGINS: grafana-llm-app
       OPENAI_API_KEY: $OPENAI_API_KEY
       OPENAI_ORGANIZATION_ID: $OPENAI_ORGANIZATION_ID
+      GF_FEATURE_TOGGLES_ENABLE: ${GF_FEATURE_TOGGLES_ENABLE:-metricsFromProfiles,flameGraphWithCallTree,localizationForPlugins}
 
   qdrant:
-    image: qdrant/qdrant
+    image: qdrant/qdrant@sha256:94728574965d17c6485dd361aa3c0818b325b9016dac5ea6afec7b4b2700865f
     volumes:
       - qdrant-storage:/qdrant/storage
 
@@ -33,6 +34,19 @@ services:
       GITHUB_CLIENT_ID: $GITHUB_CLIENT_ID
       GITHUB_CLIENT_SECRET: $GITHUB_CLIENT_SECRET
       GITHUB_SESSION_SECRET: $GITHUB_SESSION_SECRET
+
+  # e2e testing
+  playwright:
+    network_mode: host
+    container_name: 'playwright-e2e'
+    build:
+      dockerfile: Dockerfile.plugin.e2e
+      context: .
+    volumes:
+      - ./e2e:/app/e2e
+      - ./src:/app/src
+    command: ${PLAYWRIGHT_ARGS:-}
+    profiles: [playwright]
 
 volumes:
   qdrant-storage:

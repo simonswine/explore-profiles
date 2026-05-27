@@ -1,10 +1,11 @@
 import { css } from '@emotion/css';
-import { GrafanaTheme2, VariableRefresh } from '@grafana/data';
+import { AdHocVariableFilter, GrafanaTheme2, VariableRefresh } from '@grafana/data';
+import { t } from '@grafana/i18n';
 import {
   MultiValueVariable,
+  MultiValueVariableState,
   QueryVariable,
   SceneComponentProps,
-  sceneGraph,
   VariableValueOption,
 } from '@grafana/scenes';
 import { Cascader, Icon, Tooltip, useStyles2 } from '@grafana/ui';
@@ -16,12 +17,16 @@ import React, { useMemo } from 'react';
 import { lastValueFrom } from 'rxjs';
 
 import { PYROSCOPE_SERIES_DATA_SOURCE } from '../../../infrastructure/pyroscope-data-sources';
-import { FiltersVariable } from '../FiltersVariable/FiltersVariable';
 import { buildServiceNameCascaderOptions } from './domain/useBuildServiceNameOptions';
 
+const SERVICE_NAME_LABEL_DEFAULT = 'Service';
+
+type QueryVariableInitialState = ConstructorParameters<typeof QueryVariable>[0];
+
 type ServiceNameVariableState = {
-  query: string;
-  skipUrlSync: boolean;
+  query?: string;
+  skipUrlSync?: boolean;
+  initialFilters?: AdHocVariableFilter[];
 };
 
 export class ServiceNameVariable extends QueryVariable {
@@ -31,27 +36,33 @@ export class ServiceNameVariable extends QueryVariable {
   // hack: subscribe to changes of dataSource and profileMetricId
   static QUERY_PROFILE_METRIC_DEPENDENT = '$dataSource and only $profileMetricId services';
 
+  private initialFilters?: AdHocVariableFilter[];
+
   constructor(state?: ServiceNameVariableState) {
+    const { initialFilters, ...restState } = state ?? {};
     super({
       key: 'serviceName',
       name: 'serviceName',
-      label: 'Service',
+      label: SERVICE_NAME_LABEL_DEFAULT,
       datasource: PYROSCOPE_SERIES_DATA_SOURCE,
       query: ServiceNameVariable.QUERY_DEFAULT,
-      loading: true,
+      // Must be false so SceneByVariableRepeaterGrid.onActivate can call update().
+      // If true, update() returns immediately and never fetches — e.g. when switching
+      // back from flame graph to All services (new instance, grid stuck on spinner).
+      loading: false,
       refresh: VariableRefresh.onTimeRangeChanged,
-      ...state,
-    });
+      // Used by the custom renderer to avoid showing "selected service missing from catalog" before the first fetch finishes.
+      serviceCatalogFetched: false,
+      ...restState,
+    } as QueryVariableInitialState);
 
+    this.initialFilters = initialFilters;
     this.addActivationHandler(this.onActivate.bind(this));
   }
 
   onActivate() {
-    const { serviceName: serviceNameFromStorage } = userStorage.get(userStorage.KEYS.PROFILES_EXPLORER) || {};
-
-    if (serviceNameFromStorage && !this.state.value) {
-      this.setState({ value: serviceNameFromStorage });
-    }
+    this.setState({ label: t('variables.service-name.label', SERVICE_NAME_LABEL_DEFAULT) });
+    this.setInitialValue();
 
     this.subscribeToState((newState, prevState) => {
       if (newState.value && newState.value !== prevState.value) {
@@ -60,6 +71,44 @@ export class ServiceNameVariable extends QueryVariable {
         userStorage.set(userStorage.KEYS.PROFILES_EXPLORER, storage);
       }
     });
+  }
+
+  /**
+   * Precedence: `service_name` with `=` from embed/initialFilters wins over userStorage.
+   * If there is no such filter and the variable is still empty, restore the last service from userStorage.
+   */
+  setInitialValue() {
+    const { serviceName: serviceNameFromStorage } = userStorage.get(userStorage.KEYS.PROFILES_EXPLORER) || {};
+
+    const initialServiceName = this.initialFilters?.find(
+      (filter: AdHocVariableFilter) => filter.key === 'service_name' && filter.operator === '='
+    )?.value;
+
+    if (serviceNameFromStorage && !this.state.value && !initialServiceName) {
+      this.setState({ value: serviceNameFromStorage });
+    } else if (initialServiceName) {
+      this.setState({ value: initialServiceName });
+    }
+  }
+
+  /**
+   * MultiValueVariable validation replaces a value that is not in the new options with the first option.
+   * For serviceName we keep the previous selection when it drops out of the catalog (time range, DS, etc.)
+   * so URL/deep links stay stable and the UI can warn instead of silently switching services.
+   * Capture prev from this.state before super — stateUpdate already reflects the "corrected" value.
+   */
+  protected interceptStateUpdateAfterValidation(stateUpdate: Partial<MultiValueVariableState>): void {
+    const options = stateUpdate.options ?? this.state.options;
+    const prev = ServiceNameVariable.nameStr(this.state.value);
+    const prevText = typeof this.state.text === 'string' && this.state.text ? this.state.text : prev;
+
+    super.interceptStateUpdateAfterValidation(stateUpdate);
+
+    if (prev && !options.some((o) => String(o.value) === prev)) {
+      stateUpdate.value = prev;
+      stateUpdate.text = prevText;
+    }
+    (stateUpdate as { serviceCatalogFetched?: boolean }).serviceCatalogFetched = true;
   }
 
   async update() {
@@ -77,8 +126,16 @@ export class ServiceNameVariable extends QueryVariable {
     } catch (e) {
       error = e;
     } finally {
-      this.setState({ loading: false, options, error });
+      this.setState({ loading: false, options, error, serviceCatalogFetched: true } as QueryVariableInitialState);
     }
+  }
+
+  /** Normalizes variable value (string vs legacy array) for comparisons and tooltip copy. */
+  private static nameStr(v: unknown): string {
+    if (typeof v === 'string') {
+      return v;
+    }
+    return Array.isArray(v) && typeof v[0] === 'string' ? v[0] : '';
   }
 
   selectNewValue = (newValue: string) => {
@@ -87,24 +144,22 @@ export class ServiceNameVariable extends QueryVariable {
     if (!this.state.skipUrlSync) {
       prepareHistoryEntry();
     }
-    this.changeValueTo(newValue);
 
-    // manually reset filters - we should listen to the variables changes but it leads to unwanted behaviour
-    // (filters set in the URL search parameters are resetted when the user lands on the page)
-    ['filters', 'filtersBaseline', 'filtersComparison'].forEach((filterKey) => {
-      const filtersVariable = sceneGraph.findByKeyAndType(this, filterKey, FiltersVariable);
-      filtersVariable.setState({ filters: [] });
-    });
+    this.changeValueTo(newValue);
   };
 
   static Component = ({ model }: SceneComponentProps<MultiValueVariable & { selectNewValue?: any }>) => {
     const styles = useStyles2(getStyles);
-    const { loading, value, options, error } = model.useState();
-
+    const { loading, value, options, error, serviceCatalogFetched } = model.useState() as MultiValueVariableState & {
+      serviceCatalogFetched?: boolean;
+    };
     const cascaderOptions = useMemo(
       () => buildServiceNameCascaderOptions(options.map(({ label }) => label)),
       [options]
     );
+    const name = ServiceNameVariable.nameStr(value);
+    // After at least one successful options load: show warning if the current selection is not in the catalog (and not while loading).
+    const warn = Boolean(serviceCatalogFetched) && !loading && !!name && !options.some((o) => String(o.value) === name);
 
     if (error) {
       return (
@@ -115,28 +170,60 @@ export class ServiceNameVariable extends QueryVariable {
     }
 
     return (
-      <Cascader
-        // we add a key to ensure that the Cascader selects the initial value properly when landing on the page
-        // and when switching exploration types, because the value might also be changed after the component has been rendered by SceneProfilesExplorer
-        // (e.g. in SceneExploreServiceProfileTypes)
-        // it's also required for supporting the Investigations app when opening a link with a different data source
-        // than the one currently selected
-        key={nanoid(5)}
-        aria-label="Services list"
-        width={32}
-        separator="/"
-        displayAllSelectedLevels
-        placeholder={loading ? 'Loading services...' : `Select a service (${options.length})`}
-        options={cascaderOptions}
-        initialValue={value as string}
-        changeOnSelect={false}
-        onSelect={model.selectNewValue}
-      />
+      <div className={styles.row}>
+        {warn && (
+          <Tooltip
+            content={t(
+              'variables.service-name.unmatched-tooltip',
+              '"{{serviceName}}" does not appear in the list of services returned for this data source and time range. Please select a different service from the dropdown.',
+              { serviceName: name }
+            )}
+          >
+            <Icon name="exclamation-triangle" size="xl" className={styles.iconWarn} tabIndex={0} />
+          </Tooltip>
+        )}
+        <div className={styles.cascader}>
+          <Cascader
+            // we add a key to ensure that the Cascader selects the initial value properly when landing on the page
+            // and when switching exploration types, because the value might also be changed after the component has been rendered by SceneProfilesExplorer
+            // (e.g. in SceneExploreServiceProfileTypes)
+            key={nanoid(5)}
+            aria-label={t('variables.service-name.aria-label', 'Services list')}
+            width={32}
+            separator="/"
+            displayAllSelectedLevels
+            placeholder={
+              loading
+                ? t('variables.service-name.loading', 'Loading services...')
+                : t('variables.service-name.placeholder', 'Select a service ({{count}})', { count: options.length })
+            }
+            options={cascaderOptions}
+            initialValue={value as string}
+            changeOnSelect={false}
+            onSelect={model.selectNewValue}
+          />
+        </div>
+      </div>
     );
   };
 }
 
 const getStyles = (theme: GrafanaTheme2) => ({
+  row: css`
+    display: flex;
+    align-items: center;
+    gap: ${theme.spacing(1)};
+    min-width: 0;
+  `,
+  cascader: css`
+    flex: 1;
+    min-width: 0;
+  `,
+  iconWarn: css`
+    flex-shrink: 0;
+    color: ${theme.colors.warning.text};
+    cursor: help;
+  `,
   iconError: css`
     height: 32px;
     align-self: center;

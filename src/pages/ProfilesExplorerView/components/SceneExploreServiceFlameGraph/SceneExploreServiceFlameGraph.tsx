@@ -1,16 +1,19 @@
 import { css } from '@emotion/css';
 import { GrafanaTheme2 } from '@grafana/data';
-import { SceneComponentProps, sceneGraph, SceneObjectBase, SceneObjectState } from '@grafana/scenes';
+import { SceneComponentProps, sceneGraph, SceneObjectBase, SceneObjectState, SceneReactObject } from '@grafana/scenes';
 import { useStyles2 } from '@grafana/ui';
 import React from 'react';
 
 import { FavAction } from '../../domain/actions/FavAction';
 import { SelectAction } from '../../domain/actions/SelectAction';
 import { FiltersVariable } from '../../domain/variables/FiltersVariable/FiltersVariable';
+import { ProfileIdSelectorVariable } from '../../domain/variables/ProfileIdSelectorVariable';
 import { ProfileMetricVariable } from '../../domain/variables/ProfileMetricVariable';
 import { ServiceNameVariable } from '../../domain/variables/ServiceNameVariable/ServiceNameVariable';
 import { GridItemData } from '../SceneByVariableRepeaterGrid/types/GridItemData';
+import { TimeseriesReprocess } from '../SceneLabelValuesTimeseries/domain/events/TimeseriesReprocess';
 import { SceneMainServiceTimeseries } from '../SceneMainServiceTimeseries';
+import { ResolutionBoostExtensionPoint } from './components/ResolutionBoostExtensionPoint';
 import { SceneFlameGraph } from './SceneFlameGraph';
 
 interface SceneExploreServiceFlameGraphState extends SceneObjectState {
@@ -24,7 +27,12 @@ export class SceneExploreServiceFlameGraph extends SceneObjectBase<SceneExploreS
       key: 'explore-service-flame-graph',
       mainTimeseries: new SceneMainServiceTimeseries({
         item,
-        headerActions: (item) => [new SelectAction({ type: 'view-labels', item }), new FavAction({ item })],
+        includeExemplars: true,
+        headerActions: (item) => [
+          new SceneReactObject({ component: ResolutionBoostExtensionPoint, props: { scene: this } }),
+          new SelectAction({ type: 'view-labels', item }),
+          new FavAction({ item }),
+        ],
       }),
       body: new SceneFlameGraph(),
     });
@@ -49,7 +57,7 @@ export class SceneExploreServiceFlameGraph extends SceneObjectBase<SceneExploreS
   }
 
   initVariables(item: GridItemData) {
-    const { serviceName, profileMetricId, filters } = item.queryRunnerParams;
+    const { serviceName, profileMetricId, filters, profileIdSelector } = item.queryRunnerParams;
 
     if (serviceName) {
       const serviceNameVariable = sceneGraph.findByKeyAndType(this, 'serviceName', ServiceNameVariable);
@@ -61,10 +69,23 @@ export class SceneExploreServiceFlameGraph extends SceneObjectBase<SceneExploreS
       profileMetricVariable.changeValueTo(profileMetricId);
     }
 
+    if (profileIdSelector) {
+      const profileIdSelectorVariable = sceneGraph.findByKeyAndType(
+        this,
+        'profileIdSelector',
+        ProfileIdSelectorVariable
+      );
+      profileIdSelectorVariable.changeValueTo(profileIdSelector);
+    }
+
     if (filters) {
       const filtersVariable = sceneGraph.findByKeyAndType(this, 'filters', FiltersVariable);
       filtersVariable.setState({ filters });
     }
+  }
+
+  reprocessMainTimeseries() {
+    this.state.mainTimeseries?.state.body?.publishEvent(new TimeseriesReprocess({}), true);
   }
 
   // see SceneProfilesExplorer
@@ -80,7 +101,7 @@ export class SceneExploreServiceFlameGraph extends SceneObjectBase<SceneExploreS
   }
 
   static Component({ model }: SceneComponentProps<SceneExploreServiceFlameGraph>) {
-    const styles = useStyles2(getStyles); // eslint-disable-line react-hooks/rules-of-hooks
+    const styles = useStyles2(getStyles);
     const { mainTimeseries, body } = model.useState();
 
     // we use CSS here and Scenes Flex layout because we encountered a problem where the Flamegraph would not respect each panel width,

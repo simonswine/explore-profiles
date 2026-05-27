@@ -1,4 +1,5 @@
 import { DashboardCursorSync, DataFrame, LoadingState } from '@grafana/data';
+import { t } from '@grafana/i18n';
 import {
   behaviors,
   EmbeddedSceneState,
@@ -38,11 +39,7 @@ import {
   SceneQuickFilterState,
 } from '../../../../../SceneByVariableRepeaterGrid/components/SceneQuickFilter';
 import { sortFavGridItems } from '../../../../../SceneByVariableRepeaterGrid/domain/sortFavGridItems';
-import {
-  addRefId,
-  addStats,
-  sortSeries,
-} from '../../../../../SceneByVariableRepeaterGrid/infrastructure/data-transformations';
+import { addRefId, addStats } from '../../../../../SceneByVariableRepeaterGrid/infrastructure/data-transformations';
 import { GridItemData } from '../../../../../SceneByVariableRepeaterGrid/types/GridItemData';
 import { SceneLabelValuePanel } from './components/SceneLabelValuePanel';
 import { buildLabelValuesGridQueryRunner } from './infrastructure/buildLabelValuesGridQueryRunner';
@@ -86,7 +83,7 @@ export class SceneLabelValuesGrid extends SceneObjectBase<SceneLabelValuesGridSt
       isLoading: true,
       $data: new SceneDataTransformer({
         $data: buildLabelValuesGridQueryRunner({ label }),
-        transformations: [addRefId, addStats, sortSeries],
+        transformations: [addRefId, addStats],
       }),
       hideNoData: false,
       headerActions,
@@ -172,7 +169,10 @@ export class SceneLabelValuesGrid extends SceneObjectBase<SceneLabelValuesGridSt
     }
 
     refreshButton?.addEventListener('click', onClickRefresh);
-    refreshButton?.setAttribute('title', 'Click to completely refresh all the panels present on the screen');
+    refreshButton?.setAttribute(
+      'title',
+      t('labels.grid.refresh-tooltip', 'Click to completely refresh all the panels present on the screen')
+    );
     // end of hack
 
     return {
@@ -252,7 +252,7 @@ export class SceneLabelValuesGrid extends SceneObjectBase<SceneLabelValuesGridSt
       isLoading: true,
       $data: new SceneDataTransformer({
         $data: buildLabelValuesGridQueryRunner({ label: this.state.label }),
-        transformations: [addRefId, addStats, sortSeries],
+        transformations: [addRefId, addStats],
       }),
     });
 
@@ -310,7 +310,7 @@ export class SceneLabelValuesGrid extends SceneObjectBase<SceneLabelValuesGridSt
     }
 
     if (loadingState === LoadingState.Error) {
-      // TODO: check
+      // TODO: check if we need https://github.com/grafana/grafana/blob/d7f7cd1e61eac1e0103e0ca1e2122264aa831ffd/public/app/plugins/datasource/azuremonitor/utils/messageFromError.ts#L30
       this.renderErrorState(errors?.[0] as Error);
       return;
     }
@@ -404,7 +404,7 @@ export class SceneLabelValuesGrid extends SceneObjectBase<SceneLabelValuesGridSt
       children: [
         new SceneCSSGridItem({
           body: new SceneEmptyState({
-            message: 'No results',
+            message: t('labels.grid.no-results', 'No results'),
           }),
         }),
       ],
@@ -417,7 +417,7 @@ export class SceneLabelValuesGrid extends SceneObjectBase<SceneLabelValuesGridSt
       children: [
         new SceneCSSGridItem({
           body: new SceneErrorState({
-            message: error.toString(),
+            message: error.message || error.toString(),
           }),
         }),
       ],

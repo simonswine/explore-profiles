@@ -1,5 +1,6 @@
 import { css } from '@emotion/css';
 import { GrafanaTheme2, TimeRange } from '@grafana/data';
+import { t, Trans } from '@grafana/i18n';
 import { SceneComponentProps, sceneGraph, SceneObjectBase, SceneObjectState } from '@grafana/scenes';
 import { IconButton, InlineLabel, TextLink, Tooltip, useStyles2 } from '@grafana/ui';
 import { displaySuccess } from '@shared/domain/displayStatus';
@@ -11,18 +12,22 @@ import React, { useMemo, useState } from 'react';
 
 import { useBuildPyroscopeQuery } from '../../../../domain/useBuildPyroscopeQuery';
 import { ProfilesDataSourceVariable } from '../../../../domain/variables/ProfilesDataSourceVariable';
+import { getSceneVariableValue } from '../../../../helpers/getSceneVariableValue';
 import { CodeContainer } from './components/CodeContainer/CodeContainer';
 import { GitHubRepository } from './components/GitHubRepository';
+import { calculateIsGitHubSupported } from './domain/calculateIsGitHubSupported';
 import { formatFileName } from './domain/formatFileName';
+import { useFunctionVersion } from './domain/FunctionVersionContext';
 import { CommitWithSamples, getCommitsWithSamples } from './domain/getCommitsWithSamples';
 import { getRepositoryDetails } from './domain/getRepositoryDetails';
 import { isGitHubRepository } from './domain/isGitHubRepository';
-import { FunctionDetails } from './domain/types/FunctionDetails';
+import { FunctionDetails, FunctionVersion } from './domain/types/FunctionDetails';
 import { StackTrace } from './domain/types/StackTrace';
 import { useFetchFunctionsDetails } from './infrastructure/useFetchFunctionsDetails';
 import { CommitSelect } from './ui/CommitSelect';
 import { GitHubIntegrationBanner } from './ui/GitHubIntegrationBanner';
 import { InlineSpinner } from './ui/InlineSpinner';
+import { OverrideRepositoryDetailsButton } from './ui/OverrideRepositoryDetailsButton';
 
 interface SceneFunctionDetailsPanelState extends SceneObjectState {}
 
@@ -33,10 +38,12 @@ export class SceneFunctionDetailsPanel extends SceneObjectBase<SceneFunctionDeta
     super({ key: 'function-details-panel' });
   }
 
-  // eslint-disable-next-line sonarjs/cognitive-complexity
   useSceneFunctionDetailsPanel = (stackTrace: StackTrace, timeRange: TimeRange): DomainHookReturnValue => {
     const dataSourceUid = sceneGraph.findByKeyAndType(this, 'dataSource', ProfilesDataSourceVariable).useState()
       .value as string;
+    const dataSourceName = sceneGraph.findByKeyAndType(this, 'dataSource', ProfilesDataSourceVariable).useState()
+      .text as string;
+    const serviceName = getSceneVariableValue(this, 'serviceName');
     const query = useBuildPyroscopeQuery(this, 'filters');
 
     const {
@@ -47,6 +54,10 @@ export class SceneFunctionDetailsPanel extends SceneObjectBase<SceneFunctionDeta
 
     const [prevFunctionsDetails, setPrevFunctionsDetails] = useState<FunctionDetails[]>();
     const [currentFunctionDetails, setCurrentFunctionDetails] = useState<FunctionDetails>(functionsDetails[0]);
+
+    const { saveOverride, deleteOverride, functionVersion, deleteAllOverrides, functionVersionOrigin } =
+      useFunctionVersion(dataSourceUid, serviceName, currentFunctionDetails.version);
+
     const [isGitHubBannerDismissed, setIsGitHubBannerDismissed] = useState(
       userStorage.has(userStorage.KEYS.GITHUB_INTEGRATION)
     );
@@ -59,8 +70,8 @@ export class SceneFunctionDetailsPanel extends SceneObjectBase<SceneFunctionDeta
       }
     }
 
-    const isGitHubRepo = isGitHubRepository(currentFunctionDetails?.version?.repository || '');
-    const isGitHubSupported = currentFunctionDetails?.fileName?.endsWith('.go');
+    const isGitHubRepo = isGitHubRepository(functionVersion?.repository || '');
+    const isGitHubSupported = calculateIsGitHubSupported(currentFunctionDetails);
     const shouldDisplayGitHubBanner = !isGitHubBannerDismissed && !isGitHubRepo && isGitHubSupported;
 
     // TODO: massage in useFetchFunctionsDetails?
@@ -76,11 +87,17 @@ export class SceneFunctionDetailsPanel extends SceneObjectBase<SceneFunctionDeta
 
     return {
       data: {
+        serviceName,
+        dataSourceName,
         isLoading: isFetching,
         fetchFunctionDetailsError,
-        functionDetails: currentFunctionDetails,
+        functionDetails: {
+          ...currentFunctionDetails,
+          version: { ...currentFunctionDetails?.version, ...functionVersion },
+        },
+        functionVersionOrigin,
         // TODO: massage in useFetchFunctionsDetails?
-        repository: getRepositoryDetails(isGitHubRepo, currentFunctionDetails?.version),
+        repository: getRepositoryDetails(isGitHubRepo, functionVersion),
         commits,
         selectedCommit,
         isGitHubSupported,
@@ -88,6 +105,15 @@ export class SceneFunctionDetailsPanel extends SceneObjectBase<SceneFunctionDeta
         dataSourceUid,
       },
       actions: {
+        deleteFunctionOverride(datasourceUid: string, serviceName: string) {
+          deleteOverride(datasourceUid, serviceName);
+        },
+        deleteFunctionAllOverrides() {
+          deleteAllOverrides();
+        },
+        saveFunctionDetails(datasourceUid: string, serviceName: string, o: FunctionVersion) {
+          saveOverride(datasourceUid, serviceName, o);
+        },
         selectCommit(selectedCommit: CommitWithSamples) {
           const details = functionsDetails.find(({ commit }) => commit.sha === selectedCommit.sha);
           setCurrentFunctionDetails(details as FunctionDetails);
@@ -96,7 +122,7 @@ export class SceneFunctionDetailsPanel extends SceneObjectBase<SceneFunctionDeta
           try {
             if (currentFunctionDetails?.fileName) {
               await navigator.clipboard.writeText(currentFunctionDetails.fileName);
-              displaySuccess(['File path copied to clipboard!']);
+              displaySuccess([t('function-details.file-path-copied', 'File path copied to clipboard!')]);
             }
           } catch {}
         },
@@ -124,23 +150,32 @@ export class SceneFunctionDetailsPanel extends SceneObjectBase<SceneFunctionDeta
     return (
       <Panel
         className={styles.sidePanel}
-        title="Function Details"
+        title={t('function-details.title', 'Function Details')}
         isLoading={false}
-        headerActions={<IconButton name="times-circle" variant="secondary" aria-label="close" onClick={onClose} />}
+        headerActions={
+          <IconButton
+            name="times-circle"
+            variant="secondary"
+            aria-label={t('function-details.close', 'close')}
+            onClick={onClose}
+          />
+        }
         dataTestId="function-details-panel"
       >
         <div className={styles.content}>
           {data.fetchFunctionDetailsError && (
             <InlineBanner
               severity="error"
-              title="Error while fetching function details!"
+              title={t('function-details.fetch-error', 'Error while fetching function details!')}
               error={data.fetchFunctionDetailsError}
             />
           )}
 
           <div className={styles.container}>
             <div className={styles.row} data-testid="row-function-name">
-              <InlineLabel width={SceneFunctionDetailsPanel.LABEL_WIDTH}>Function name</InlineLabel>
+              <InlineLabel width={SceneFunctionDetailsPanel.LABEL_WIDTH}>
+                <Trans i18nKey="function-details.function-name">Function name</Trans>
+              </InlineLabel>
               <Tooltip content={data.functionDetails.name} placement="top">
                 <span className={styles.textValue}>{data.functionDetails.name}</span>
               </Tooltip>
@@ -148,39 +183,42 @@ export class SceneFunctionDetailsPanel extends SceneObjectBase<SceneFunctionDeta
 
             <div className={styles.row} data-testid="row-start-line">
               <InlineLabel
-                tooltip="The line where this function definition starts"
+                tooltip={t('function-details.start-line-tooltip', 'The line where this function definition starts')}
                 width={SceneFunctionDetailsPanel.LABEL_WIDTH}
               >
-                Start line
+                <Trans i18nKey="function-details.start-line">Start line</Trans>
               </InlineLabel>
               <span className={styles.textValue}>
                 <InlineSpinner isLoading={data.isLoading}>
-                  {data.functionDetails.startLine !== undefined ? data.functionDetails.startLine : '-'}
+                  {data.functionDetails.startLine !== undefined
+                    ? data.functionDetails.startLine
+                    : t('function-details.not-available', '-')}
                 </InlineSpinner>
               </span>
             </div>
 
             <div className={styles.row} data-testid="row-file-path">
               <InlineLabel
-                tooltip="File path where that function is defined"
+                tooltip={t('function-details.file-tooltip', 'File path where that function is defined')}
                 width={SceneFunctionDetailsPanel.LABEL_WIDTH}
               >
-                File
+                <Trans i18nKey="function-details.file">File</Trans>
               </InlineLabel>
               <InlineSpinner isLoading={data.isLoading}>
                 {data.functionDetails.fileName ? (
                   <>
                     <Tooltip content={data.functionDetails.fileName} placement="top">
-                      <span className={styles.textValue}>{formatFileName(data.functionDetails.fileName)}</span>
+                      {/* adding LRM to prevent ellipsis with RTL to fail when the file name starts with non-alpha chars (e.g. "$")  */}
+                      <span className={styles.textValue}>&lrm;{formatFileName(data.functionDetails.fileName)}</span>
                     </Tooltip>
                     <IconButton
                       name="clipboard-alt"
-                      tooltip="Copy to clipboard"
+                      tooltip={t('function-details.copy-to-clipboard', 'Copy to clipboard')}
                       onClick={actions.copyFilePathToClipboard}
                     />
                   </>
                 ) : (
-                  '-'
+                  t('function-details.not-available', '-')
                 )}
               </InlineSpinner>
             </div>
@@ -193,32 +231,47 @@ export class SceneFunctionDetailsPanel extends SceneObjectBase<SceneFunctionDeta
 
             <div className={styles.row} data-testid="row-repository">
               <InlineLabel
-                tooltip="The repository configured for the selected service"
+                tooltip={t('function-details.repository-tooltip', 'The repository configured for the selected service')}
                 width={SceneFunctionDetailsPanel.LABEL_WIDTH}
               >
-                Repository
+                <Trans i18nKey="function-details.repository">Repository</Trans>
               </InlineLabel>
               <InlineSpinner isLoading={data.isLoading}>
                 {data.repository ? (
                   data.repository.isGitHub ? (
                     <GitHubRepository enableIntegration={data.isGitHubSupported} repository={data.repository} />
                   ) : (
-                    <TextLink href={data.repository} external>
-                      {data.repository}
+                    <TextLink href={data.repository.url} external>
+                      {data.repository.url}
                     </TextLink>
                   )
                 ) : (
-                  '-'
+                  t('function-details.not-available', '-')
                 )}
               </InlineSpinner>
+              {!data.isLoading && (
+                <OverrideRepositoryDetailsButton
+                  serviceName={data.serviceName}
+                  datasourceName={data.dataSourceName}
+                  datasourceUid={data.dataSourceUid}
+                  version={data.functionDetails.version}
+                  functionVersionOrigin={data.functionVersionOrigin}
+                  saveOverrides={actions.saveFunctionDetails}
+                  deleteAllOverrides={actions.deleteFunctionAllOverrides}
+                  deleteOverride={actions.deleteFunctionOverride}
+                />
+              )}
             </div>
 
             <div className={styles.row} data-testid="row-commit">
               <InlineLabel
                 width={SceneFunctionDetailsPanel.LABEL_WIDTH}
-                tooltip="The version of the application (commit) where the function is defined. Use the dropdown menu to target a specific commit."
+                tooltip={t(
+                  'function-details.commit-tooltip',
+                  'The version of the application (commit) where the function is defined. Use the dropdown menu to target a specific commit.'
+                )}
               >
-                Commit
+                <Trans i18nKey="function-details.commit">Commit</Trans>
               </InlineLabel>
               <InlineSpinner isLoading={data.isLoading}>
                 <CommitSelect
@@ -266,9 +319,10 @@ const getStyles = (theme: GrafanaTheme2) => ({
     }
   `,
   textValue: css`
+    // hack to have the ellipsis appear at the start of the string
+    direction: rtl;
     text-overflow: ellipsis;
     overflow: hidden;
-    direction: rtl;
     white-space: nowrap;
   `,
 });

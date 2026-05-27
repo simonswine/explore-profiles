@@ -7,8 +7,20 @@ import { LayoutType } from '../../pages/ProfilesExplorerView/components/SceneByV
 import { PanelType } from '../../pages/ProfilesExplorerView/components/SceneByVariableRepeaterGrid/components/ScenePanelTypeSwitcher';
 import { GIT_COMMIT } from '../../version';
 
+export type PageName = 'explore' | 'settings' | 'ad_hoc';
+
 // hey future dev: don't forget to add any new value to our features tracking dashboard!
 export type Interactions = {
+  g_pyroscope_app_page_initialized: {
+    page: PageName;
+  };
+
+  g_pyroscope_app_ad_hoc_file_dropped: {
+    fileType: string;
+  };
+  g_pyroscope_app_ad_hoc_file_removed: {};
+  g_pyroscope_app_ad_hoc_profile_metric_selected: {};
+  g_pyroscope_app_ad_hoc_profile: {};
   g_pyroscope_app_compare_link_clicked: {};
   g_pyroscope_app_diff_auto_select_clicked: {};
   g_pyroscope_app_diff_choose_preset_clicked: {};
@@ -21,6 +33,9 @@ export type Interactions = {
   g_pyroscope_app_explain_flamegraph_clicked: {};
   g_pyroscope_app_exploration_type_clicked: {
     explorationType: string;
+  };
+  g_pyroscope_app_exemplars_toggled: {
+    showExemplars: boolean;
   };
   g_pyroscope_app_export_profile: {
     format: 'png' | 'json' | 'pprof' | 'flamegraph.com';
@@ -43,6 +58,7 @@ export type Interactions = {
     layout: LayoutType;
   };
   g_pyroscope_app_open_in_explore_clicked: {};
+  g_pyroscope_app_open_recording_rules_view: {};
   g_pyroscope_app_optimize_code_clicked: {};
   g_pyroscope_app_panel_type_changed: {
     panelType: PanelType;
@@ -57,10 +73,11 @@ export type Interactions = {
   g_pyroscope_app_timeseries_scale_changed: {
     scale: ScaleDistribution;
   };
+  g_pyroscope_app_upload_ad_hoc_clicked: {};
   g_pyroscope_app_user_settings_clicked: {};
 };
 
-const PROFILES_EXPLORER_PAGE_NAME = ROUTES.PROFILES_EXPLORER_VIEW.slice(1);
+const PROFILES_EXPLORER_PAGE_NAME = ROUTES.EXPLORE.slice(1);
 
 function getCurrentPage(): string {
   const { pathname } = new URL(window.location.toString());

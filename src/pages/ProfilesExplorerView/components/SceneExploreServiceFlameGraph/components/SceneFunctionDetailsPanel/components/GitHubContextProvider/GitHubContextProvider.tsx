@@ -17,6 +17,9 @@ type GitHubContextProviderProps = {
 
 export const nonce = generateNonce();
 
+// Keep the data source UID in session storage to reuse it if the page is refreshed
+const LOCAL_STORAGE_GITHUB_INTEGRATION_DATASOURCE_UID = `grafana-pyroscope-app.gitHubIntegration.dataSourceUid`;
+
 export function GitHubContextProvider({ dataSourceUid, children }: GitHubContextProviderProps) {
   const vcsClient = DataSourceProxyClientBuilder.build(dataSourceUid, VcsClient);
   const privateVcsClient = DataSourceProxyClientBuilder.build(dataSourceUid, PrivateVcsClient);
@@ -25,11 +28,12 @@ export function GitHubContextProvider({ dataSourceUid, children }: GitHubContext
   const [sessionCookie, setSessionCookie] = useGithubSessionCookie();
   const [externalWindow, setExternalWindow] = useState<Window | null>();
 
-  // hack to prevent failures impossible to fix for the user (unless they know they have to delete the cookie)
-  // when logged in and changing data source
-  // TODO: provide a better way
   useEffect(() => {
-    setSessionCookie('');
+    const gitHubIntegrationDataSourceUid = localStorage.getItem(LOCAL_STORAGE_GITHUB_INTEGRATION_DATASOURCE_UID);
+    if (gitHubIntegrationDataSourceUid !== dataSourceUid) {
+      setSessionCookie('');
+      localStorage.setItem(LOCAL_STORAGE_GITHUB_INTEGRATION_DATASOURCE_UID, dataSourceUid || '');
+    }
   }, [dataSourceUid]); // eslint-disable-line react-hooks/exhaustive-deps
 
   usePollGitHubPopup({ vcsClient, externalWindow, setExternalWindow, setSessionCookie, nonce });
@@ -57,6 +61,7 @@ export function GitHubContextProvider({ dataSourceUid, children }: GitHubContext
         isLoggedIn: Boolean(sessionCookie && !sessionCookie.isUserTokenExpired()),
         isSessionExpired: Boolean(sessionCookie?.isUserTokenExpired()),
         login,
+        logout: () => setSessionCookie(''),
       }}
     >
       {children}
